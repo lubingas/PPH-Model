@@ -15,16 +15,19 @@ source("data_input.R")
 
 # run basecase model
 model <- RunModel(baseparms = baseinputs, 
-                  basetransitions = basetransitions)
+                  basetransitions = basetransitions,
+                  makePlots = TRUE)
 
-# 
+# print(model, what = "tables")
+# print(model, what = "plots")
+
+
 dsa <- owsa(model = model,
             low_base = usa.low, low_transitions = dir_lowinputs,
             high_base = usa.high, high_transitions = dir_highinputs,
             max_vars = 15)
 
-
-
 ## PSA
 # run PSA on all outcomes
-psa_all <- RunPSA(model = model, nsims = 100, wtp = 2000, by = 200)
+psa <- RunPSA(model = model, nsims = 5000, wtp = 2000, by = 200)
+

@@ -32,6 +32,7 @@ library(gt)
 library(pbapply)
 library(highcharter)
 library(echarts4r)
+library(bezier) # to generate bezier points for smoother CEAC plot
 #library(data.table)
 
 pboptions(type = "txt")
@@ -413,7 +414,8 @@ getMisoProgCosts <- function(nWomen, nHW, cTrain, daysTraining, cNurse, nNurse, 
 
 
 RunModel <- function(baseparms, 
-                     basetransitions) {
+                     basetransitions, 
+                     makePlots = FALSE) {
   
   beta1 <- as.list(c(baseparms, basetransitions))
   attach(beta1)
@@ -814,6 +816,20 @@ RunModel <- function(baseparms,
 
   # compute weighted sum of outcomes and bind to quintile specific outcomes
   wtDALYOutcomes <- weightSumOutcomes(outcomesList = DALYOutcomes, weights = wts)
+  
+  # also generate plots here too
+  # put outcomes in their own list
+  tabList <- list(Incidence = wtIncidOutcomes, Mortality = wtMortOutcomes, DALYS = wtDALYOutcomes)
+  #parmsList = list(baseparms = baseparms, basetransitions = basetransitions)
+  
+  if(makePlots) {
+    
+    incidPlot <- outcomesPlot(outcome = "Incidence", whichTab = wtIncidOutcomes)
+    mortsPlot <- outcomesPlot(outcome = "Mortality", whichTab = wtMortOutcomes)
+    dalysPlot <- outcomesPlot(outcome = "DALYs", whichTab = wtDALYOutcomes)
+
+  }
+    #plotList <- pbmapply(FUN = outcomesPlot, outcome = outcomes, whichTab = tabList)
 
   # don't forget to detach
   detach(beta1)
@@ -824,12 +840,21 @@ RunModel <- function(baseparms,
   # TableMortality <- TabulateOutcomes(data = wtMortOutcomes, decimals = 4, scale = 1)
   # TableDALYs <- TabulateOutcomes(data = wtDALYOutcomes, decimals = 4, scale = 1)
   
-  out <- structure(list(Incidence = wtIncidOutcomes, Mortality = wtMortOutcomes, DALYS = wtDALYOutcomes,
-                        #gTabs = list(IncidTab = TableIncidence, MortTab = TableMortality, DALYsTab = TableDALYs),
-                        baseparms = baseparms, basetransitions = basetransitions
-  ),
-  class = "modOut"
-  )
+  if(makePlots) {
+    out <- structure(list(Incidence = wtIncidOutcomes, Mortality = wtMortOutcomes, DALYS = wtDALYOutcomes, 
+                          plotsList = list(Incidence = incidPlot, Mortality = mortsPlot, DALYs = dalysPlot), 
+                          baseparms = baseparms, basetransitions = basetransitions),
+                     class = "modOut"
+    )
+    
+  } else {
+    
+    out <- structure(list(Incidence = wtIncidOutcomes, Mortality = wtMortOutcomes, DALYS = wtDALYOutcomes, 
+                          baseparms = baseparms, basetransitions = basetransitions),
+                     class = "modOut"
+    )
+    
+  }
   
 
   return(out)
@@ -839,9 +864,14 @@ RunModel <- function(baseparms,
 
 # custom print method to supress baseparms an basetransitions from printing to the console
 
-print.modOut <- function(x, ...) {
+print.modOut <- function(x, what = TRUE...) {
   
-  x <- c(x["Incidence"], x["Mortality"], x["DALYS"])
+  if (what == "plots") {
+    x <- x["plotsList"]
+  } else if (what == "tables") {
+    x <- c(x["Incidence"], x["Mortality"], x["DALYS"])
+  }
+  
   NextMethod()
   
 }
@@ -876,13 +906,9 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
   
   # set up matrix to collect the results
   owsaIncid <- matrix(NA,
-                          nrow = length(low_base) + length(low_transitions),
-                          ncol=10)
-                      # ,
-                      #     dimnames=list(c(names(low_base), names(low_transitions)),
-                      #                   c(paste0("low ", names(basecase)),
-                      #                     paste0("high ", names(basecase)))))
-  
+                      nrow = length(low_base) + length(low_transitions),
+                      ncol=10)
+
   # make three of them
   owsaMort <- owsaDALYs <- owsaIncid
   
@@ -990,11 +1016,23 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
   basecase <- list(baseIncid, baseMort, baseDALYs)
   names(basecase) <- c("Incidence", "Mortality", "DALYs")
   
-  genDSA <- function(owsalist, basecase, max_vars) {
+  genDSA <- function(owsalist, basecase, max_vars, named) {
+    print(named)
+    isName <- switch(named,
+                     Incidence = "incident cases prevented",
+                     Mortality = "deaths averted",
+                     DALYs = "DALYs averted")
     
-    outcomeName <- c("Incremental Outcomes", "Incremental Costs (Societal Perspective)", 
-                     "Incremental Costs (Government Perspective)", "ICER (Societal Perspective)", 
-                     "ICER (Government Perspective)")
+    isPerName <- switch(named,
+                     Incidence = "incident case prevented",
+                     Mortality = "death averted",
+                     DALYs = "DALY averted")
+    
+    outcomeName <- c(isName, 
+                     "Incremental costs (Societal Perspective)", 
+                     "Incremental costs (Government Perspective)", 
+                     paste0("Incremental cost per ", isPerName, " (Societal Perspective)"), 
+                     paste0("Incremental cost per ", isPerName, " (Governmental Perspective)"))
 
     for (i in 1:5) {
       
@@ -1017,58 +1055,51 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
       names(owsadata)[i] <- outcomeName[i]
     }
     
-    # # add title to list of owsa plots
-    # owsaplots <- lapply(names(basecase), FUN = function (z) {
-    #   owsaplot |>
-    #     hc_title(text = z)
-    # })
-    
-    return(list(owsadata, owsaplot))
+    return(list(Tables = owsadata, Plots = owsaplot))
     
   }
   
-  owsaList <- pbmapply(FUN = genDSA, owsalist = owsaList,
-                       basecase = basecase, MoreArgs = list(max_vars))
+  # owsaList <- pbmapply(FUN = genDSA, owsalist = owsaList,
+  #                      basecase = basecase, MoreArgs = list(max_vars))
+  
+  # need to recover names of lists, so I do seq_along and add the name to the original function
+  dsaList <- pblapply(seq_along(owsaList), function(x) {
+    genDSA(owsalist = owsaList[[x]], basecase = basecase[[x]], 
+           max_vars = max_vars, named = names(basecase)[[x]])
+    
+  })
+  names(dsaList) <- names(owsaList) # name the traces
+  
   
   
   # unlist this complext list and structure output the way we want; tables together in nested list and 
   # plots together in their own nested list
-  owsaList <- unlist(owsaList, recursive = FALSE)
-
-  tablesList <- list(Incidence = owsaList[1:5], 
-                     Mortality = owsaList[11:15], 
-                     DALYs = owsaList[21:25])
-  
-  plotsList <- list(Incidence = owsaList[6:10], 
-                    Mortality = owsaList[16:20], 
-                    DALYs = owsaList[26:30])
-  
-  # loop through plotsList and add title based on names(basecas)
-  for (i in 1:3) {
-    for (j in 1:5) {
-      plotsList[[i]][[j]] <- plotsList[[i]][[j]] |>
-        hc_title(text = names(basecase)[i])
-    }
-  }
-  
-  # lapply(list(owsaIncidTables, owsaIncidPlots, 
-  #             owsaMortTables, owsaMortPlots,
-  #             owsaDALYTables, owsaDALYPlots), FUN = function(x) {names(x) = outcomeNames})
-
-  # owsaList <- structure(list(Incidence = list(owsaIncidTables, owsaIncidPlots), 
-  #                            Mortality = list(owsaMortTables, owsaMortPlots), 
-  #                            DALYs = list(owsaDALYTables, owsaDALYPlots)
-  # ),
-  # class = "owsaOut"
-  # )
-  
-  owsaList <- structure(list(Tables = tablesList, 
+  # dsaList <- unlist(dsaList, recursive = FALSE)
+  # 
+  tablesList <- list(Incidence = dsaList$Incidence$Tables,
+                     Mortality = dsaList$Mortality$Tables,
+                     DALYs = dsaList$DALYs$Tables)
+  # 
+  plotsList <- list(Incidence = dsaList$Incidence$Plots,
+                    Mortality = dsaList$Mortality$Plots,
+                    DALYs = dsaList$DALYs$Plots)
+  # 
+  # # loop through plotsList and add title based on names(basecase)
+  # for (i in 1:3) {
+  #   for (j in 1:5) {
+  #     plotsList[[i]][[j]] <- plotsList[[i]][[j]] |>
+  #       hc_title(text = names(basecase)[i])
+  #   }
+  # }
+  # 
+  # apply structure to output to hide Tables when user prints the output
+  dsaList <- structure(list(Tables = tablesList,
                              Plots = plotsList
                              ),
                         class = "owsaOut"
                         )
   
-  return(owsaList)
+  return(dsaList)
   
   
 } 
@@ -1082,13 +1113,8 @@ print.owsaOut <- function(x, ...) {
 }
 
 
-  
-
 # function takes output from DSA as a list, and plots the results (user inputs max vars)
 TornadoPlot <- function(owsatab, basecase, outcomeName, max_vars) {
-  
-  # set color
-  col <- brewer.pal(3,"Dark2")
   
   # filter for those with perc impact on outcome
   owsa_torn <- owsatab |>
@@ -1099,8 +1125,24 @@ TornadoPlot <- function(owsatab, basecase, outcomeName, max_vars) {
   p <- owsa_torn |>
     #mutate_if(is.character, as.factor) |>
     pivot_longer(!variable) |> # pivot longer 
-    hchart('bar', hcaes(x = variable, y = value, group = name), threshold = basecase) |>
-    hc_yAxis(title = list(text = outcomeName)) |>
+    hchart('bar', hcaes(x = variable, y = value, group = name), 
+           color = brewer.pal(3, "Dark2")[1:2],
+           threshold = basecase) |>
+    hc_yAxis(title = list(text = outcomeName),
+             gridLineWidth = 0,
+             lineWidth = 1,
+             tickWidth = 1, 
+             crosshair = TRUE,
+             minorTicks = TRUE,
+             minorGridLineWidth = 0,
+             minorTickLength = 5,
+             minorTickWidth = 1) |>
+    hc_xAxis(title = list(text = ""),
+             lineWidth = 1,
+             tickWidth = 1, 
+             crosshair = TRUE,
+             tickmarkPlacement = 'on') |>
+    hc_chart(zoomType = "x") |>
     hc_plotOptions(bar = list(grouping = FALSE))
   
   
@@ -1192,14 +1234,24 @@ RunPSA <- function(model, nsims, wtp, by) {
   # pmap(., bind_rows) # pull together costs and outcomes into separate tables for WTP function
   
   # generate scatter plot
-  scatterPlots <- pblapply(psaTraces, ScatterPSA)
+  # need to recover names of lists, so I do seq_along and add the name to the original function
+  scatterPlots <- pblapply(seq_along(psaTraces), function(x) {
+    ScatterPSA(psaTrace = psaTraces[[x]], named = names(psaTraces)[[x]])
+    
+    })
+  names(scatterPlots) <- names(psaTraces) # name the traces
 
   # run CEAC analysis
   ceacTraces <- pblapply(psaTraces, RunCEAC, wtp = wtp, by = by)
   
   # generate CEAC
-  ceacPlots <- pblapply(ceacTraces, drawCEAC)
-  
+  # need to recover names of lists
+  ceacPlots <- pblapply(seq_along(ceacTraces), function(x) {
+    drawCEAC(ceacTrace = ceacTraces[[x]], named = names(ceacTraces)[[x]])
+    
+  })
+  names(ceacPlots) <- names(ceacTraces)
+
 
   # return(list(psaTrace = psaTrace, scatterPlot = scatterPlot,
   #             ceacTrace = ceacTrace, ceacPlot = ceacPlot))
@@ -1227,8 +1279,8 @@ print.psaOut <- function(x, ...) {
 # function takes the maxwtp, a vector or dataframe of costs and outcomes for all interventions
 # and returns probability that a given intervention is cost effective 
 genProbCE <- function(wtp, psaTrace) {
-  NMBSoc <- psaTrace[, 1]*wtp - psaTrace[, 2]                   # NMB = DALYs * wtp - COSTS
-  NMBGov <- psaTrace[, 1]*wtp - psaTrace[, 3]                   # NMB = DALYs * wtp - COSTS
+  NMBSoc <- psaTrace[, 1] * wtp - psaTrace[, 2]                   # NMB = DALYs * wtp - COSTS
+  NMBGov <- psaTrace[, 1] * wtp - psaTrace[, 3]                   # NMB = DALYs * wtp - COSTS
   pCESoc <- mean(NMBSoc > 0)        # find maximum for each row (nax nmb)
   pCEGov <- mean(NMBGov > 0)         # find maximum for each row (nax nmb)
   return(c(pCESoc = pCESoc, pCEGov = pCEGov))           # calculate probability of cost-effectiveness
@@ -1246,33 +1298,55 @@ RunCEAC <- function(psaTrace, wtp, by) {
 
 
 
-ScatterPSA <- function(psaTrace) {
+ScatterPSA <- function(psaTrace, named) {
   
   min <- with(psaTrace, ifelse((min(deltaSocCosts) > 0 | min(deltaGovCosts) > 0) , 0, NULL))
+  
+  isName <- switch(named,
+                   Incidence = "incident cases prevented",
+                   Mortality = "deaths averted",
+                   DALYs = "DALYs averted")
 
-  # e1 <- highchart() |>
-  #   hc_add_series(data = psaTrace,
-  #                 type = 'scatter',
-  #                 name = "Societal Perspective",
-  #                 hcaes(x = deltaOutcome, y = deltaSocCosts)) |>
-  #   hc_add_series(data = psaTrace,
-  #                 type = 'scatter',
-  #                 name= "Governmental Perspective",
-  #                 hcaes(x = deltaOutcome, y = deltaGovCosts),
-  #                 marker = list(fillColor = "red"),
-  #                 boostThreshold = 0) |>
-  #   hc_yAxis(title = list(text= 'Incremental Costs'), min = min) |>
-  #   hc_xAxis(title = list(text= 'Incremental Outcome'), min = min)
+  h1 <- highchart() |>
+    hc_add_series(data = psaTrace,
+                  type = 'scatter',
+                  name = "Societal Perspective",
+                  hcaes(x = deltaOutcome, y = deltaSocCosts),
+                  marker = list(symbol = "circle", 
+                                fillColor = "rgba(27,158,119,0.3)",
+                                lineColor = "rgba(27,158,119,0.5)",
+                                lineWidth = 1,
+                                radius = 4)) |>
+    hc_add_series(data = psaTrace,
+                  type = 'scatter',
+                  name= "Governmental Perspective",
+                  hcaes(x = deltaOutcome, y = deltaGovCosts),
+                  marker = list(symbol = "circle", 
+                                fillColor = "rgba(217,95,2,0.3)",
+                                lineColor = "rgba(2217,95,2,0.5)",
+                                lineWidth = 1,
+                                radius = 4)) |>
+    hc_yAxis(lineWidth = 1, # show y-axis line
+             tickWidth = 1, # show y-axis ticks
+             gridLineWidth = 0, # remove gridlines
+             #tickLength = 1,
+             #gridLineColor = 'transparent', # removes gridlines
+             startOnTick = TRUE,
+             title = list(text = "Incremental costs", align = "high"),
+             min = min) |>
+    hc_xAxis(title = list(text = isName, align = "high"),
+             startOnTick = TRUE) |>
+    hc_title(text = paste0("Incremental cost and ", isName, " pairs"))
 
   
-  
-  e1 <- psaTrace |>
-    as_tibble() |>
-    e_charts(deltaOutcome) |>
-    e_scatter(deltaSocCosts) |>
-    e_scatter(deltaGovCosts)
+  # 
+  # e1 <- psaTrace |>
+  #   as_tibble() |>
+  #   e_charts(deltaOutcome) |>
+  #   e_scatter(deltaSocCosts) |>
+  #   e_scatter(deltaGovCosts)
 
-  return(e1)
+  return(h1)
 
   
   # psaTrace |>
@@ -1289,76 +1363,136 @@ ScatterPSA <- function(psaTrace) {
 }
 
 
-drawCEAC <- function(ceacTrace) {
+drawCEAC <- function(ceacTrace, named) {
   
-  e1 <- ceacTrace |>
-    as_tibble() |>
-    e_charts(WTP) |>
-    e_line(pCESoc) |>
-    e_line(pCEGov)
+  isName <- switch(named,
+                   Incidence = "incident cases prevented",
+                   Mortality = "deaths averted",
+                   DALYs = "DALYs averted")
   
-  # e1 <- highchart() |>
-  #   hc_add_series(data = ceacTrace,
-  #                 type = 'line',
-  #                 name = "Societal Perspective",
-  #                 hcaes(x = WTP, y = pCESoc)) |>
-  #   hc_add_series(data = ceacTrace,
-  #                 type = 'line',
-  #                 name= "Governmental Perspective",
-  #                 hcaes(x = WTP, y = pCEGov),
-  #                 list(type = "polynomial", order = 1))
-  #   
+  
+  # bezier points for smooth curve
+  bezCEAC <- as_tibble(bezier(t=seq(0, 1, length=200), p=ceacTrace))
+  colnames(bezCEAC) <- c("WTP", "pCESoc", "pCEGov")
+  
+  # e1 <- ceacTrace |>
+  #   e_charts(WTP) |>
+  #   e_line(pCESoc) |>
+  #   e_line(pCEGov)
   # 
-  # return(e1)
+  
+  h1 <- highchart() |>
+    hc_add_series(data = bezCEAC,
+                  type = 'line',
+                  name = "Societal Perspective",
+                  hcaes(x = WTP, y = pCESoc)) |>
+    hc_add_series(data = bezCEAC,
+                  type = 'line',
+                  name= "Governmental Perspective",
+                  hcaes(x = WTP, y = pCEGov)) |>
+    hc_yAxis(max = 1,
+             lineWidth = 1, # show y-axis line
+             tickWidth = 1, # show y-axis ticks
+             gridLineWidth = 0, # remove gridlines
+             #tickLength = 1,
+             #gridLineColor = 'transparent', # removes gridlines
+             startOnTick = TRUE,
+             title = list(text = "Probability Cost Effective", align = "high")) |>
+    hc_xAxis(title = list(text = paste0("WTP ($/", isName, ")"), align = "high"),
+             startOnTick = TRUE,
+             min = 0) |>
+    hc_title(text = paste0("Cost Effective Acceptability Curve (", named, ")"))
+
+
+  return(h1)
   # 
   # 
   # plot_ly(ceacTrace, x = ~WTP) %>%
-  #   add_trace(y = ~pCESoc, type = 'scatter', mode = 'lines+markers', name = "Societal",
-  #             line = list(shape = 'spline', color = col[1], width= 1.5),
-  #             marker = list(symbol = "diamond", color = col[1], size = 9)) %>%
-  #   
-  #   add_trace(y = ~pCEGov, type = 'scatter', mode = 'lines+markers', name = "Government",
-  #             line = list(shape = 'spline', color = col[2], width= 1.5),
-  #             marker = list(symbol = "square", color = col[2], size = 8)) %>%
-  #   
-  #   layout(xaxis = list(title = 'Willingness-to-pay'), 
+  #   add_trace(y = ~pCESoc, type = 'scatter', mode = 'lines', name = "Societal",
+  #             line = list(shape = 'spline', color = col[1], width = 2)) %>%
+  # 
+  #   add_trace(y = ~pCEGov, type = 'scatter', mode = 'lines', name = "Government",
+  #             line = list(shape = 'spline', color = col[2], width = 2)) %>%
+  # 
+  #   layout(xaxis = list(title = 'Willingness-to-pay'),
   #          yaxis = list(title = 'Probability Cost-Effective'),
   #          legend = list(orientation = 'v'))
 }
 
-outcomesPlot <- function(model, outcome) {
+outcomesPlot <- function(outcome, whichTab) {
   
-  # identify which table we need
-  whichTab <- switch(outcome,
-                     Incidence = model$Incidence,
-                     Mortality = model$Mortality,
-                     DALYs = model$DALYS)
+    # identify which table we need
+    # whichTab <- switch(outcome,
+    #                    Incidence = model$Incidence,
+    #                    Mortality = model$Mortality,
+    #                    DALYs = model$DALYS)
+    
+    whichTab <- rownames_to_column(whichTab, var = "Quintile")
+    
+    name1 <- switch(outcome, 
+                    Incidence = "Incidence (Misoprostol)",
+                    Mortality = "Mortality (Misoprostol)",
+                    DALYs = "DALYS (Misoprostol)")
+    
+    name2 <- switch(outcome, 
+                    Incidence = "Additional cases",
+                    Mortality = "Deaths prevented",
+                    DALYs = "DALYs averted")
+    
+    h1 <- highchart() |> 
+      hc_chart(type = "column") |>
+      hc_plotOptions(column = list(stacking = "normal")) |>
+      hc_xAxis(categories = whichTab[, 1],
+               crosshair = TRUE) |>
+      hc_add_series(name=paste0(name2, " (No Miso)"),
+                    data = whichTab[, 4],
+                    stack = "Quintile") |>
+      hc_add_series(name=name1,
+                    data = whichTab[, 3],
+                    stack = "Quintile") |>
+      hc_title(text = outcome)
+    
+    h2 <- highchart() |> 
+      hc_chart(type = "column") |>
+      hc_plotOptions(column = list(stacking = "normal")) |>
+      hc_xAxis(categories = whichTab[, 1],
+               crosshair = TRUE) |>
+      hc_add_series(name="Incremental Cost (Governmental)",
+                    data = whichTab[, 10],
+                    stack = "Quintile") |>
+      hc_add_series(name="No Miso Costs (Governmental)",
+                    data = whichTab[, 8],
+                    stack = "Quintile") |>
+      hc_add_series(name="Incremental Cost (Societal)",
+                    data = whichTab[ ,7],
+                    stack = "Quintile2") |>
+      hc_add_series(name="No Miso Costs (Societal)",
+                    data = whichTab[, 5],
+                    stack = "Quintile2")
+    
+    return(hw_grid(list(h1, h2)))
+    
   
-  # make into tibble and convert name to rows
-  whichTab <- rownames_to_column(whichTab, var = "Quintile") %>%
-    as_tibble() 
   # |>
   #   mutate(deltaGovCosts = ifelse(outcome=="Incidence", deltaGovCosts, (-1*deltaGovCosts)),
   #          deltaSocCosts = ifelse(outcome=="Incidence", deltaSocCosts, (-1*deltaSocCosts)))
   
   # use echarts4r much better
-  e1 <- whichTab |>
-    e_charts(x = Quintile) |>
-    e_bar_(colnames(whichTab)[3], stack = "Quintile") |>
-    e_bar_(colnames(whichTab)[4], stack = "Quintile")
-  
-  e2 <- whichTab |>
-    e_charts(x = Quintile) |>
-    e_bar_(colnames(whichTab)[8], stack = "Quintile") |>
-    e_bar_(colnames(whichTab)[10], stack = "Quintile") |>
-    e_bar_(colnames(whichTab)[5], stack = "Quintile1") |>
-    e_bar_(colnames(whichTab)[7], stack = "Quintile1")
-  
-  e_arrange(e1, e2)
+  # e1 <- whichTab |>
+  #   e_charts(x = Quintile) |>
+  #   e_bar_(colnames(whichTab)[3], stack = "Quintile") |>
+  #   e_bar_(colnames(whichTab)[4], stack = "Quintile")
+  # 
+  # e2 <- whichTab |>
+  #   e_charts(x = Quintile) |>
+  #   e_bar_(colnames(whichTab)[8], stack = "Quintile") |>
+  #   e_bar_(colnames(whichTab)[10], stack = "Quintile") |>
+  #   e_bar_(colnames(whichTab)[5], stack = "Quintile1") |>
+  #   e_bar_(colnames(whichTab)[7], stack = "Quintile1")
+  # 
+  # e_arrange(e1, e2)
 
 }
-
-
 
 
 TabulateOutcomes <- function(data, decimals, scale) {
@@ -1394,7 +1528,7 @@ TabulateOutcomes <- function(data, decimals, scale) {
 
 
 makeSims <- function(nsims, ...) {
-  
+  set.seed(12678)
   # takes inputs from the global environment
   # need nsims to go through function so user can set it
   #betas
