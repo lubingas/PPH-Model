@@ -33,6 +33,7 @@ library(pbapply)
 library(highcharter)
 library(echarts4r)
 library(bezier) # to generate bezier points for smoother CEAC plot
+
 #library(data.table)
 
 pboptions(type = "txt")
@@ -416,16 +417,12 @@ getMisoProgCosts <- function(nWomen, nHW, cTrain, daysTraining, cNurse, nNurse, 
 RunModel <- function(baseparms, 
                      basetransitions, 
                      makePlots = FALSE) {
-  
+
   beta1 <- as.list(c(baseparms, basetransitions))
   attach(beta1)
   
   environment(getAccessCost) <- environment() # makes temp copy of getAccessCost function so variables created here are accessible to it without needing to plance entire mtrace function in the RunModel function
   environment(getCareCost) <- environment() # makes temp copy of getCareCost function so variables created here are accessible to it without needing to plance entire mtrace function in the RunModel function
-  
-  # daly_vec_PPH <- sapply(age, FUN = getDALYS, LE = LifeExp, disabilitywt = disabilitywtPPH, duration = durationPPH, discFact = discFact)
-  # daly_vec_URup <- sapply(age, FUN = getDALYS, LE = LifeExp, disabilitywt = disabilitywtRupture, duration = durationUterineRupture, discFact = discFact)
-  # daly_vec_StillB <- sapply(age, FUN = getDALYS, LE = LifeExp, disabilitywt = disabilitywtStillBirth, duration = durationStillBirth, discFact = discFact)
   
   # use mapply to iterate over lists of duration and disability weights
   # apply mapply function to the middle "ages" in the model 
@@ -443,19 +440,6 @@ RunModel <- function(baseparms,
   names(age_wt_DALYs) <- c("pph", "rupture", "stillbirth")
   
 
-  # DALYs_PPH <- proportions %*% t(matrix(unlist(daly_vec_PPH), nrow = 2, byrow = FALSE))
-  # DALYs_URup <- proportions %*% t(matrix(unlist(daly_vec_URup), nrow = 2, byrow = FALSE))
-  # DALYs_StillB <- proportions %*% t(matrix(unlist(daly_vec_StillB), nrow = 2, byrow = FALSE))
-  # 
-  # pphYLD <- DALYs_PPH[1, 1]
-  # pphYLL <- DALYs_PPH[1, 2]
-  # 
-  # ruptureYLL <- DALYs_URup[1, 1]
-  # ruptureYLD <- DALYs_URup[1, 2]
-  # 
-  # stillbirthYLL <- DALYs_StillB[1, 1]
-  # stillbirthYLD <- DALYs_StillB[1, 2]
-  # 
   ## opportunity cost calculations
   cNormDelHomeFriend <- (cProductivity/procDaysYr)*avgFriendTime
   cOppCostPPHPatientTime <- ((averageLOSPPH*cProductivity)/procDaysYr)+((averageTravelTime*cProductivity)/(procDaysYr*procHrsDay))
@@ -517,27 +501,6 @@ RunModel <- function(baseparms,
   
   DALYlist <- matrix(c(pph_payoff, compl_payoff, pph_payoff), ncol = 1)
   
-  # 
-  # # calculate DALYs
-  # DALYlist <- c(pphYLL+pphYLD*pSevereAnemiaEmOC, pphYLD*pSevereAnemiaEmOC,
-  #               pphYLL+pphYLD*pSevereAnemiaEmOC, pphYLD*pSevereAnemiaEmOC,
-  #               0, 0, 
-  #               pphYLL+pphYLD*pSevereAnemiaEmOC, pphYLD*pSevereAnemiaEmOC,
-  #               pphYLL+pphYLD*pSevereAnemiaEmOC, pphYLD*pSevereAnemiaEmOC,
-  #               0, 0, 
-  #               ruptureYLL+ruptureYLD, ruptureYLD, 
-  #               stillbirthYLL+stillbirthYLD, stillbirthYLD,
-  #               pphYLL+pphYLD*pSevereAnemiaEmOC, pphYLD*pSevereAnemiaEmOC, 
-  #               pphYLL+pphYLD*pSevereAnemiaEmOC, pphYLD*pSevereAnemiaEmOC, 
-  #               0, 0,
-  #               pphYLL+pphYLD*pSevereAnemiaEmOC, pphYLD*pSevereAnemiaEmOC, 
-  #               pphYLL+pphYLD*pSevereAnemiaEmOC, pphYLD*pSevereAnemiaEmOC,
-  #               0, 0) %>% 
-  #   matrix(., ncol = 1) %>%
-  #   as_tibble()
-  # 
-  #
-  
   apply_intervention <- c(NoMiso = FALSE, Miso = TRUE)
   
   # TREATMENT TRAJECTORIES
@@ -555,31 +518,12 @@ RunModel <- function(baseparms,
     lapply(TxTrjList, FUN = getIncidencePath, Intervention = x)}
   )
   
-  # IncidTrajectory_NoMiso <- lapply(TxTrjList, FUN = getIncidencePath, Intervention = FALSE)
-  # IncidTrajectory_Miso <- lapply(TxTrjList, FUN = getIncidencePath, Intervention = TRUE)
-  # 
-  # 
   # # CAREPATHWAY TRAJECTORIES
   # now apply getCarePath function to each Quintile list, then to each intervention arm
   # return TxTrajectory list with trajectory for each treatment arm
   CareTrajectory <- lapply(apply_intervention, FUN = function (x) {
     lapply(QuintileList, FUN = getCarePath, Intervention = x)}
   )
-  
-  # return(list(TxTrajectory, IncidTrajectory, CareTrajectory))
-  
-  # CareTrajectory_NoMiso <- lapply(QuintileList, FUN = getCarePath, Intervention = FALSE)
-  # CareTrajectory_Miso <- lapply(QuintileList, FUN = getCarePath, Intervention = TRUE)
-  # 
-  # # combine CAREPATHWAY & TREATMENT TRAJECTORIES for each quintile
-  # # outer product to multiply each element of carepathway trajectory list with its counterpart in the treatment trajectory pathway
-  # # data is pooled by quintiles, each element of the returned list corresponds to a wealth quintile
-  # # overall pathway probabilities for each quintile (they should sum to 1)
-
-  # mapply outer function to each element of CareTrajectory and TxTrajectory - TxTrajectory is a list 
-  # containing trajectories by wealth quintile, so use lapply to iterate over each ealth quintile, 
-  # applying the mapply function at each iteration to the trajectory for each wealth quintile
-  # mapply(FUN = outer, model[[1]]$NoMiso, model[[3]]$NoMiso$Lowest)
   
   # mapply applies "outer" function to 
   noMisoAll <- lapply(CareTrajectory$NoMiso, FUN = function(x) {
@@ -600,15 +544,6 @@ RunModel <- function(baseparms,
   })
   
   
-  # noMisoAll <- lapply(CareTrajectory_NoMiso, map2_dfc, .x = TxTrajectory_NoMiso, .f = outer)
-  # MisoAll <- lapply(CareTrajectory_Miso, map2_dfc, .x = TxTrajectory_Miso, .f = outer)
-  # 
-  # # incidence pathway probabilities for each quintile
-  # # should sum to 1
-  # IncidnoMisoAll <- lapply(CareTrajectory_NoMiso, map2_dfc, .x = IncidTrajectory_NoMiso, .f = outer)
-  # IncidMisoAll <- lapply(CareTrajectory_Miso, map2_dfc, .x = IncidTrajectory_Miso, .f = outer)
-  # 
-  # 
   # # COST for TREATMENT TRAJECTORIES
   perspective <- c(Societal = TRUE, Governmental = FALSE)
   
@@ -623,10 +558,6 @@ RunModel <- function(baseparms,
   AccessCost <- lapply(apply_intervention, FUN = function(x) {
     sapply(perspective, getAccessCost, x)
   })
-  
-  # IncidGovCostNoMiso <- t(outer(GovAccessCostNoMiso, GovIncidCostNoMiso, FUN = "+")) %>% as_tibble()
-  # IncidSocCostMiso <- t(outer(SocAccessCostMiso, SocIncidCostMiso, FUN = "+")) %>% as_tibble()
-  
   
   perp <- c("Societal", "Governmental")
   names(perp) <- perp
@@ -661,52 +592,9 @@ RunModel <- function(baseparms,
                 IncCareNoMiso = IncCareNoMiso,
                 IncCareMiso = IncCareMiso))
     
-    
-    # return(list(totalCareNoMiso = totalCareNoMiso, 
-    #             totalCareMiso = totalCareMiso, 
-    #             IncidCareNoMiso = IncidCareNoMiso, 
-    #             IncidCareMiso = IncidCareMiso))
-    
   }
   
   allCosts <- lapply(perp, FUN = CostCalc)
-  
-
-  # # put it together - TOTAL CARE COSTS
-  # totalSocCostNoMiso <- t(outer(SocAccessCostNoMiso, SocCareCostNoMiso, FUN = "+")) %>% as_tibble()
-  # totalGovCostNoMiso <- t(outer(GovAccessCostNoMiso, GovCareCostNoMiso, FUN = "+")) %>% as_tibble()
-  # totalSocCostMiso <- t(outer(SocAccessCostMiso, SocCareCostMiso, FUN = "+")) %>% as_tibble()
-  # totalGovCostMiso <- t(outer(GovAccessCostMiso, GovCareCostMiso, FUN = "+")) %>% as_tibble()
-  
-  # SocCareCostNoMiso <- getCareCost(Societal = TRUE, Intervention = FALSE)
-  # GovCareCostNoMiso <- getCareCost(Societal = FALSE, Intervention = FALSE)
-  # SocCareCostMiso <- getCareCost(Societal = TRUE, Intervention = TRUE)
-  # GovCareCostMiso <- getCareCost(Societal = FALSE, Intervention = TRUE)
-  # 
-  # # incidence only cost
-  # SocIncidCostNoMiso <- getIncidenceCost(Societal = TRUE, Intervention = FALSE)
-  # GovIncidCostNoMiso <- getIncidenceCost(Societal = FALSE, Intervention = FALSE)
-  # SocIncidCostMiso <- getIncidenceCost(Societal = TRUE, Intervention = TRUE)
-  # GovIncidCostMiso <- getIncidenceCost(Societal = FALSE, Intervention = TRUE)
-  # 
-  # # COSTS OF CARE
-  # SocAccessCostNoMiso <- getAccessCost(Societal = TRUE, Intervention = FALSE)
-  # GovAccessCostNoMiso <- getAccessCost(Societal = FALSE, Intervention = FALSE)
-  # SocAccessCostMiso <- getAccessCost(Societal = TRUE, Intervention = TRUE)
-  # GovAccessCostMiso <- getAccessCost(Societal = FALSE, Intervention = TRUE)
-  # 
-  # # put it together - TOTAL CARE COSTS
-  # totalSocCostNoMiso <- t(outer(SocAccessCostNoMiso, SocCareCostNoMiso, FUN = "+")) %>% as_tibble()
-  # totalGovCostNoMiso <- t(outer(GovAccessCostNoMiso, GovCareCostNoMiso, FUN = "+")) %>% as_tibble()
-  # totalSocCostMiso <- t(outer(SocAccessCostMiso, SocCareCostMiso, FUN = "+")) %>% as_tibble()
-  # totalGovCostMiso <- t(outer(GovAccessCostMiso, GovCareCostMiso, FUN = "+")) %>% as_tibble()
-  # 
-  # # put it together - Incidence COSTS
-  # IncidSocCostNoMiso <- t(outer(SocAccessCostNoMiso, SocIncidCostNoMiso, FUN = "+")) %>% as_tibble()
-  # IncidGovCostNoMiso <- t(outer(GovAccessCostNoMiso, GovIncidCostNoMiso, FUN = "+")) %>% as_tibble()
-  # IncidSocCostMiso <- t(outer(SocAccessCostMiso, SocIncidCostMiso, FUN = "+")) %>% as_tibble()
-  # IncidGovCostMiso <- t(outer(GovAccessCostMiso, GovIncidCostMiso, FUN = "+")) %>% as_tibble()
-  # 
   
   # # The rest of the final math here - outcomes by wealth quintile
   # # INCIDENCE
@@ -730,43 +618,6 @@ RunModel <- function(baseparms,
   DALYsMiso <- sapply(lapply(MisoAll, FUN = function(x) {
     mapply("*", x, DALYlist)}), sum)
   
-  #SocCostsNoMiso <- sapply(lapply(noMisoAll, map2_dfr, .y = totalSocCostNoMiso, .f = ~.x * .y), sum)
-  
-
-  # 
-  # noMisoAll <- lapply(CareTrajectory$NoMiso, FUN = function(x) {
-  #   mapply(FUN = outer, TxTrajectory$NoMiso, x)
-  # })
-  
-  #return(list(IncidenceNoMiso, IncidenceMiso))
-  
-  
-  # # Do the rest of the final math here in the function
-  # # INCIDENCE
-  # IncidenceNoMiso <- sapply(lapply(IncidnoMisoAll, FUN = map_dfc, .x = incidence, .f = ~.x * .y), sum)
-  # IncidenceMiso <- sapply(lapply(IncidMisoAll, FUN = map_dfc, .x = incidence, .f = ~.x * .y), sum)
-  # 
-  # # MORTALITY
-  # mortalityNoMiso <- sapply(lapply(noMisoAll, FUN = map_dfc, .x = mortality, .f = ~.x * .y), sum)
-  # mortalityMiso <- sapply(lapply(MisoAll, FUN = map_dfc, .x = mortality, .f = ~.x * .y), sum)
-  # 
-  # # DALYs
-  # DALYsNoMiso <- sapply(lapply(noMisoAll, FUN = map_dfc, .x = DALYlist, .f = ~.x * .y), sum)
-  # DALYsMiso <- sapply(lapply(MisoAll, FUN = map_dfc, .x = DALYlist, .f = ~.x * .y), sum)
-  # 
-  # # COSTS
-  # # Lifetime costs
-  # SocCostsNoMiso <- sapply(lapply(noMisoAll, map2_dfr, .y = totalSocCostNoMiso, .f = ~.x * .y), sum)
-  # SocCostsMiso <- sapply(lapply(MisoAll, map2_dfr, .y = totalSocCostNoMiso, .f = ~.x * .y), sum)
-  # GovCostsNoMiso <- sapply(lapply(noMisoAll, map2_dfr, .y = totalGovCostNoMiso, .f = ~.x * .y), sum)
-  # GovCostsMiso <- sapply(lapply(MisoAll, map2_dfr, .y = totalGovCostNoMiso, .f = ~.x * .y), sum)
-  # 
-  # # Incidence Costs
-  # SocCostsIncidNoMiso <- sapply(lapply(IncidnoMisoAll, map2_dfr, .y = IncidSocCostNoMiso, .f = ~.x * .y), sum)
-  # SocCostsIncidMiso <- sapply(lapply(IncidMisoAll, map2_dfr, .y = IncidSocCostMiso, .f = ~.x * .y), sum)
-  # GovCostsIncidNoMiso <- sapply(lapply(IncidnoMisoAll, map2_dfr, .y = IncidGovCostNoMiso, .f = ~.x * .y), sum)
-  # GovCostsIncidMiso <- sapply(lapply(IncidMisoAll, map2_dfr, .y = IncidGovCostMiso, .f = ~.x * .y), sum)
-  # 
   # # sum everything, then weight by proportions in each quantile
   # # done above with lapply and sum
   # 
@@ -816,7 +667,7 @@ RunModel <- function(baseparms,
 
   # compute weighted sum of outcomes and bind to quintile specific outcomes
   wtDALYOutcomes <- weightSumOutcomes(outcomesList = DALYOutcomes, weights = wts)
-  
+
   # also generate plots here too
   # put outcomes in their own list
   tabList <- list(Incidence = wtIncidOutcomes, Mortality = wtMortOutcomes, DALYS = wtDALYOutcomes)
@@ -829,7 +680,6 @@ RunModel <- function(baseparms,
     dalysPlot <- outcomesPlot(outcome = "DALYs", whichTab = wtDALYOutcomes)
 
   }
-    #plotList <- pbmapply(FUN = outcomesPlot, outcome = outcomes, whichTab = tabList)
 
   # don't forget to detach
   detach(beta1)
@@ -855,7 +705,14 @@ RunModel <- function(baseparms,
     )
     
   }
-  
+
+  out <- structure(list(Incidence = wtIncidOutcomes, Mortality = wtMortOutcomes, DALYS = wtDALYOutcomes,
+                        #gTabs = list(IncidTab = TableIncidence, MortTab = TableMortality, DALYsTab = TableDALYs),
+                        baseparms = baseparms, basetransitions = basetransitions
+  ),
+  class = "modOut"
+  )
+
 
   return(out)
   
@@ -871,10 +728,8 @@ print.modOut <- function(x, what = TRUE...) {
   } else if (what == "tables") {
     x <- c(x["Incidence"], x["Mortality"], x["DALYS"])
   }
-  
-  NextMethod()
-  
 }
+  
 
 ## computed weighted sum of outcomes and returns the named dataframe
 weightSumOutcomes <- function(outcomesList, weights) {
@@ -1059,9 +914,7 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
     
   }
   
-  # owsaList <- pbmapply(FUN = genDSA, owsalist = owsaList,
-  #                      basecase = basecase, MoreArgs = list(max_vars))
-  
+
   # need to recover names of lists, so I do seq_along and add the name to the original function
   dsaList <- pblapply(seq_along(owsaList), function(x) {
     genDSA(owsalist = owsaList[[x]], basecase = basecase[[x]], 
@@ -1070,11 +923,8 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
   })
   names(dsaList) <- names(owsaList) # name the traces
   
+
   
-  
-  # unlist this complext list and structure output the way we want; tables together in nested list and 
-  # plots together in their own nested list
-  # dsaList <- unlist(dsaList, recursive = FALSE)
   # 
   tablesList <- list(Incidence = dsaList$Incidence$Tables,
                      Mortality = dsaList$Mortality$Tables,
@@ -1084,14 +934,6 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
                     Mortality = dsaList$Mortality$Plots,
                     DALYs = dsaList$DALYs$Plots)
   # 
-  # # loop through plotsList and add title based on names(basecase)
-  # for (i in 1:3) {
-  #   for (j in 1:5) {
-  #     plotsList[[i]][[j]] <- plotsList[[i]][[j]] |>
-  #       hc_title(text = names(basecase)[i])
-  #   }
-  # }
-  # 
   # apply structure to output to hide Tables when user prints the output
   dsaList <- structure(list(Tables = tablesList,
                              Plots = plotsList
@@ -1100,7 +942,7 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
                         )
   
   return(dsaList)
-  
+
   
 } 
 
@@ -1144,22 +986,6 @@ TornadoPlot <- function(owsatab, basecase, outcomeName, max_vars) {
              tickmarkPlacement = 'on') |>
     hc_chart(zoomType = "x") |>
     hc_plotOptions(bar = list(grouping = FALSE))
-  
-  
-  # axislabel <- switch(outcome,
-  #                     ICER=paste0("Cost per ", on_outcome),
-  #                     cost="Incremental Cost ($)",
-  #                     outcome=on_outcome)
-  
-  # use echarts4r much better
-  # owsa_torn |>
-  #   e_charts(x = variable, type = "bar") |>
-  #   e_bar(lowval, name = "Low values") |>
-  #   e_bar(highval, name = "High values", barGap = "-100%") |>
-  #   e_x_axis(axisLine = list(onZero = FALSE, show = TRUE), show = 1, min = 8) |>
-  #   e_y_axis(axisLine = list(show = TRUE), position = "top", show = 1) |>
-  #   e_flip_coords()
-    
 
   return(p)
   
@@ -1219,20 +1045,6 @@ RunPSA <- function(model, nsims, wtp, by) {
   psaTraces <- pblapply(outList, 
                 FUN = function(x) data.table::setDF(data.table::rbindlist(psaTrace[x, ])))
   
-  
-  # some manipulations to recover a data.frame fast
-  # pT <- data.table::as.data.table(psaTrace)
-  # psaTrace <- data.table::setDF(lapply(pT, unlist))
-
-  
-  # do away with slow purrr code
-  
-    # purrr::transpose() %>% # convert each row of data into a separate list
-    # purrr::map(.f = genPSA, model = model, outcome = outcome) %>% # apply function to each dataframe in the list to get CE pairs
-    # do.call("rbind", .) %>%
-    # data.frame()
-  # pmap(., bind_rows) # pull together costs and outcomes into separate tables for WTP function
-  
   # generate scatter plot
   # need to recover names of lists, so I do seq_along and add the name to the original function
   scatterPlots <- pblapply(seq_along(psaTraces), function(x) {
@@ -1252,10 +1064,6 @@ RunPSA <- function(model, nsims, wtp, by) {
   })
   names(ceacPlots) <- names(ceacTraces)
 
-
-  # return(list(psaTrace = psaTrace, scatterPlot = scatterPlot,
-  #             ceacTrace = ceacTrace, ceacPlot = ceacPlot))
-  
   psaList <- structure(list(psaTraces = psaTraces,
                             ceacTraces = ceacTraces,
                             Plots = list(scatterPlots = scatterPlots, ceacPlots = ceacPlots)),
@@ -1339,27 +1147,8 @@ ScatterPSA <- function(psaTrace, named) {
     hc_title(text = paste0("Incremental cost and ", isName, " pairs"))
 
   
-  # 
-  # e1 <- psaTrace |>
-  #   as_tibble() |>
-  #   e_charts(deltaOutcome) |>
-  #   e_scatter(deltaSocCosts) |>
-  #   e_scatter(deltaGovCosts)
-
   return(h1)
 
-  
-  # psaTrace |>
-  # plot_ly() %>%
-  #   add_trace(x = ~deltaOutcome, y = ~deltaSocCosts,
-  #             type = 'scatter', mode = 'markers', name = "Societal",
-  #             marker = list(symbol = "circle-open", color = col[1], size = 7)) %>%
-  # 
-  #   add_trace(x = ~deltaOutcome, y = ~deltaGovCosts,
-  #             type = 'scatter', mode = 'markers', name = "Government",
-  #             marker = list(symbol = "circle-open", color = col[2], size = 8)) %>%
-  # 
-  #   layout(xaxis = list(title = 'Incremental Outcome'), yaxis = list(title = 'Incremental Costs'))
 }
 
 
@@ -1370,16 +1159,14 @@ drawCEAC <- function(ceacTrace, named) {
                    Mortality = "deaths averted",
                    DALYs = "DALYs averted")
   
+  isPerName <- switch(named,
+                      Incidence = "incident case prevented",
+                      Mortality = "death averted",
+                      DALYs = "DALY averted")
   
   # bezier points for smooth curve
   bezCEAC <- as_tibble(bezier(t=seq(0, 1, length=200), p=ceacTrace))
   colnames(bezCEAC) <- c("WTP", "pCESoc", "pCEGov")
-  
-  # e1 <- ceacTrace |>
-  #   e_charts(WTP) |>
-  #   e_line(pCESoc) |>
-  #   e_line(pCEGov)
-  # 
   
   h1 <- highchart() |>
     hc_add_series(data = bezCEAC,
@@ -1398,35 +1185,18 @@ drawCEAC <- function(ceacTrace, named) {
              #gridLineColor = 'transparent', # removes gridlines
              startOnTick = TRUE,
              title = list(text = "Probability Cost Effective", align = "high")) |>
-    hc_xAxis(title = list(text = paste0("WTP ($/", isName, ")"), align = "high"),
+    hc_xAxis(title = list(text = paste0("WTP ($/", isPerName, ")"), align = "high"),
              startOnTick = TRUE,
              min = 0) |>
     hc_title(text = paste0("Cost Effective Acceptability Curve (", named, ")"))
 
 
   return(h1)
-  # 
-  # 
-  # plot_ly(ceacTrace, x = ~WTP) %>%
-  #   add_trace(y = ~pCESoc, type = 'scatter', mode = 'lines', name = "Societal",
-  #             line = list(shape = 'spline', color = col[1], width = 2)) %>%
-  # 
-  #   add_trace(y = ~pCEGov, type = 'scatter', mode = 'lines', name = "Government",
-  #             line = list(shape = 'spline', color = col[2], width = 2)) %>%
-  # 
-  #   layout(xaxis = list(title = 'Willingness-to-pay'),
-  #          yaxis = list(title = 'Probability Cost-Effective'),
-  #          legend = list(orientation = 'v'))
+  
 }
 
 outcomesPlot <- function(outcome, whichTab) {
   
-    # identify which table we need
-    # whichTab <- switch(outcome,
-    #                    Incidence = model$Incidence,
-    #                    Mortality = model$Mortality,
-    #                    DALYs = model$DALYS)
-    
     whichTab <- rownames_to_column(whichTab, var = "Quintile")
     
     name1 <- switch(outcome, 
@@ -1472,27 +1242,8 @@ outcomesPlot <- function(outcome, whichTab) {
     
     return(hw_grid(list(h1, h2)))
     
-  
-  # |>
-  #   mutate(deltaGovCosts = ifelse(outcome=="Incidence", deltaGovCosts, (-1*deltaGovCosts)),
-  #          deltaSocCosts = ifelse(outcome=="Incidence", deltaSocCosts, (-1*deltaSocCosts)))
-  
-  # use echarts4r much better
-  # e1 <- whichTab |>
-  #   e_charts(x = Quintile) |>
-  #   e_bar_(colnames(whichTab)[3], stack = "Quintile") |>
-  #   e_bar_(colnames(whichTab)[4], stack = "Quintile")
-  # 
-  # e2 <- whichTab |>
-  #   e_charts(x = Quintile) |>
-  #   e_bar_(colnames(whichTab)[8], stack = "Quintile") |>
-  #   e_bar_(colnames(whichTab)[10], stack = "Quintile") |>
-  #   e_bar_(colnames(whichTab)[5], stack = "Quintile1") |>
-  #   e_bar_(colnames(whichTab)[7], stack = "Quintile1")
-  # 
-  # e_arrange(e1, e2)
-
 }
+
 
 
 TabulateOutcomes <- function(data, decimals, scale) {
