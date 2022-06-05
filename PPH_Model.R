@@ -22,6 +22,10 @@ model <- RunModel(baseparms = baseinputs,
 # print(model, what = "plots")
 
 
+# run basecase model
+model <- RunModel(baseparms = baseinputs, 
+                  basetransitions = basetransitions)
+
 dsa <- owsa(model = model,
             low_base = usa.low, low_transitions = dir_lowinputs,
             high_base = usa.high, high_transitions = dir_highinputs,
@@ -29,5 +33,4 @@ dsa <- owsa(model = model,
 
 ## PSA
 # run PSA on all outcomes
-psa <- RunPSA(model = model, nsims = 5000, wtp = 2000, by = 200)
-
+psa <- RunPSA(model = model, nsims = 50, wtp = 2000, by = 200)

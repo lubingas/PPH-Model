@@ -33,6 +33,7 @@ library(pbapply)
 library(highcharter)
 library(echarts4r)
 library(bezier) # to generate bezier points for smoother CEAC plot
+
 #library(data.table)
 
 pboptions(type = "txt")
@@ -416,7 +417,7 @@ getMisoProgCosts <- function(nWomen, nHW, cTrain, daysTraining, cNurse, nNurse, 
 RunModel <- function(baseparms, 
                      basetransitions, 
                      makePlots = FALSE) {
-  
+
   beta1 <- as.list(c(baseparms, basetransitions))
   attach(beta1)
   
@@ -816,7 +817,7 @@ RunModel <- function(baseparms,
 
   # compute weighted sum of outcomes and bind to quintile specific outcomes
   wtDALYOutcomes <- weightSumOutcomes(outcomesList = DALYOutcomes, weights = wts)
-  
+
   # also generate plots here too
   # put outcomes in their own list
   tabList <- list(Incidence = wtIncidOutcomes, Mortality = wtMortOutcomes, DALYS = wtDALYOutcomes)
@@ -829,7 +830,6 @@ RunModel <- function(baseparms,
     dalysPlot <- outcomesPlot(outcome = "DALYs", whichTab = wtDALYOutcomes)
 
   }
-    #plotList <- pbmapply(FUN = outcomesPlot, outcome = outcomes, whichTab = tabList)
 
   # don't forget to detach
   detach(beta1)
@@ -855,7 +855,14 @@ RunModel <- function(baseparms,
     )
     
   }
-  
+
+  out <- structure(list(Incidence = wtIncidOutcomes, Mortality = wtMortOutcomes, DALYS = wtDALYOutcomes,
+                        #gTabs = list(IncidTab = TableIncidence, MortTab = TableMortality, DALYsTab = TableDALYs),
+                        baseparms = baseparms, basetransitions = basetransitions
+  ),
+  class = "modOut"
+  )
+
 
   return(out)
   
@@ -871,10 +878,8 @@ print.modOut <- function(x, what = TRUE...) {
   } else if (what == "tables") {
     x <- c(x["Incidence"], x["Mortality"], x["DALYS"])
   }
-  
-  NextMethod()
-  
 }
+  
 
 ## computed weighted sum of outcomes and returns the named dataframe
 weightSumOutcomes <- function(outcomesList, weights) {
@@ -1059,9 +1064,7 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
     
   }
   
-  # owsaList <- pbmapply(FUN = genDSA, owsalist = owsaList,
-  #                      basecase = basecase, MoreArgs = list(max_vars))
-  
+
   # need to recover names of lists, so I do seq_along and add the name to the original function
   dsaList <- pblapply(seq_along(owsaList), function(x) {
     genDSA(owsalist = owsaList[[x]], basecase = basecase[[x]], 
@@ -1070,11 +1073,8 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
   })
   names(dsaList) <- names(owsaList) # name the traces
   
+
   
-  
-  # unlist this complext list and structure output the way we want; tables together in nested list and 
-  # plots together in their own nested list
-  # dsaList <- unlist(dsaList, recursive = FALSE)
   # 
   tablesList <- list(Incidence = dsaList$Incidence$Tables,
                      Mortality = dsaList$Mortality$Tables,
@@ -1100,7 +1100,7 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
                         )
   
   return(dsaList)
-  
+
   
 } 
 
@@ -1111,6 +1111,7 @@ print.owsaOut <- function(x, ...) {
   NextMethod()
 
 }
+
 
 
 # function takes output from DSA as a list, and plots the results (user inputs max vars)
@@ -1251,7 +1252,6 @@ RunPSA <- function(model, nsims, wtp, by) {
     
   })
   names(ceacPlots) <- names(ceacTraces)
-
 
   # return(list(psaTrace = psaTrace, scatterPlot = scatterPlot,
   #             ceacTrace = ceacTrace, ceacPlot = ceacPlot))
@@ -1493,6 +1493,7 @@ outcomesPlot <- function(outcome, whichTab) {
   # e_arrange(e1, e2)
 
 }
+
 
 
 TabulateOutcomes <- function(data, decimals, scale) {
