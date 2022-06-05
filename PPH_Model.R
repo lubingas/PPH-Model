@@ -29,7 +29,7 @@ model <- RunModel(baseparms = baseinputs,
 dsa <- owsa(model = model,
             low_base = usa.low, low_transitions = dir_lowinputs,
             high_base = usa.high, high_transitions = dir_highinputs,
-            max_vars = 15)
+            max_vars = 20)
 
 ## PSA
 psa <- RunPSA(model = model, nsims = 5000, wtp = 2000, by = 200)
