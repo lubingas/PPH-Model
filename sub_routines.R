@@ -1062,6 +1062,7 @@ RunPSA <- function(model, nsims, wtp, by) {
     drawCEAC(ceacTrace = ceacTraces[[x]], named = names(ceacTraces)[[x]])
     
   })
+  
   names(ceacPlots) <- names(ceacTraces)
 
   psaList <- structure(list(psaTraces = psaTraces,
