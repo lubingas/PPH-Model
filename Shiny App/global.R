@@ -1,4 +1,16 @@
 
+# place all files in the same working directory and change to this directory 
+# setwd("../../PPH-Model/Shiny App")
+
+
+# load functions we need
+source("sub_routines.R")
+
+# some preliminary stuff
+# these are not varied in sensitivity analyses
+interventions <- c("Misoprostol", "No Misoprostol")
+
+
 # load data
 data = read_excel("pph_data_input.xlsx", sheet = 1)
 
@@ -137,9 +149,4 @@ names(randdirchinputs) <- c("Quintiles", "AgeDistribution")
 # 
 # # pool together into one dataframe
 # psa_input <- data.frame(randbeta, randtnormal, randunif, randlognormal, randdirichlets, fixedinputs)
-
-
-
-
-
 

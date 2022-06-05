@@ -33,6 +33,11 @@ library(pbapply)
 library(highcharter)
 library(echarts4r)
 library(bezier) # to generate bezier points for smoother CEAC plot
+library(shiny)
+library(shinyjs)
+library(shinythemes)
+library(progressr)
+library(bslib)
 
 #library(data.table)
 
@@ -713,13 +718,10 @@ RunModel <- function(baseparms,
 
 # custom print method to supress baseparms an basetransitions from printing to the console
 
-print.modOut <- function(x, what = "plots", ...) {
+print.modOut <- function(x, ...) {
   
-  if (what == "plots") {
     x <- x["plotsList"]
-  } else if (what == "tables") {
-    x <- c(x["Incidence"], x["Mortality"], x["DALYS"])
-  }
+    
 }
   
 
@@ -738,8 +740,10 @@ weightSumOutcomes <- function(outcomesList, weights) {
 
 ## loop through base-case, high and low values and calculate model
 # function requires user to have run the incremental analysis, if not, run incremental within the function and extrace the things we need
-owsa <- function(model, low_base, low_transitions, high_base, high_transitions, 
-                 outcome, max_vars) {
+owsa <- function(model, 
+                 low_base, low_transitions, 
+                 high_base, high_transitions, 
+                 max_vars) {
   
   # get the baseinputs and transitions from model object
   baseinputs <- model$baseparms
@@ -764,14 +768,20 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
   owsavars <- c(paste0(names(low_base), " (", sprintf(lowinputs, fmt = "%#.2f"),", ", sprintf(highinputs, fmt = "%#.2f"),")"),
                 paste0("Distribution of - ", names(low_transitions)))
   
+  p <- progressr::progressor(steps = length(low_base) + length(low_transitions))
+  
   i = 0
   # set all live values to the base case
   live <- baseinputs
   for (n in names(lowinputs)) {
     i = i + 1
     # counter
-    message("Analyzing impact of ", n, ", variable ", i, "/", length(low_base) + length(low_transitions))
-    # message("Running DSA on ", n, ", variable ", i, " of ", length(names(lowinputs)))
+    
+    #message("Analyzing impact of ", n, ", variable ", i, "/", length(low_base) + length(low_transitions))
+    # Increment the progress bar, and update the detail text.
+    p(paste0("Analyzing impact of ", n, ", variable ", i, "/", (length(low_base) + length(low_transitions))))
+    #progress$inc(1/(length(low_base) + length(low_transitions)), detail = text)
+    
     # replace the current parameter with its low value and run the model
     low.input <- lowinputs[n]
     live[n] <- low.input
@@ -798,8 +808,6 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
     owsaMort[i, ] <- c(unlist(lowMort), unlist(highMort))
     owsaDALYs[i, ] <- c(unlist(lowDALYs), unlist(highDALYs))
     
-    
-    
     # reset to the original value
     live[n] <- baseinputs[n]
   }
@@ -810,7 +818,12 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
   
   for (i in 1:length(low_transitions)) {
     
-    message("Analyzing impact of dirichlet input set ", names(low_transitions)[i], ", variable ", i + length(low_base), "/", length(low_base) + length(low_transitions))
+    #message("Analyzing impact of dirichlet input set ", names(low_transitions)[i], ", variable ", i + length(low_base), "/", length(low_base) + length(low_transitions))
+    
+    # Increment the progress bar, and update the detail text.
+    p(paste0("Analyzing impact of dirichlet input set ", names(low_transitions)[i], ", variable ", i + length(low_base), "/", length(low_base) + length(low_transitions)))
+    #progress$inc(1/(length(low_base) + length(low_transitions)), detail = text)
+    
     
     # replace the current parameter-set with its low value and run the model
     low.input <- low_transitions[[i]]
@@ -864,7 +877,7 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
   names(basecase) <- c("Incidence", "Mortality", "DALYs")
   
   genDSA <- function(owsalist, basecase, max_vars, named) {
-    print(named)
+    # print(named)
     isName <- switch(named,
                      Incidence = "incident cases prevented",
                      Mortality = "deaths averted",
@@ -882,6 +895,8 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
                      paste0("Incremental cost per ", isPerName, " (Governmental Perspective)"))
 
     for (i in 1:5) {
+      
+      #progress$inc(1/5, detail = "Generating plots")
       
       owsa_tab <- as_tibble(owsalist) %>%
         select(c(0 + i, 5 + i)) %>%
@@ -908,15 +923,18 @@ owsa <- function(model, low_base, low_transitions, high_base, high_transitions,
   
 
   # need to recover names of lists, so I do seq_along and add the name to the original function
+  
+  p <- progressr::progressor(along = seq_along(owsaList))
+  
   dsaList <- pblapply(seq_along(owsaList), function(x) {
+    
+    p(paste0("Tornado diagrams for ", names(owsaList)[x]))
     genDSA(owsalist = owsaList[[x]], basecase = basecase[[x]], 
            max_vars = max_vars, named = names(basecase)[[x]])
     
   })
   names(dsaList) <- names(owsaList) # name the traces
-  
 
-  
   # 
   tablesList <- list(Incidence = dsaList$Incidence$Tables,
                      Mortality = dsaList$Mortality$Tables,
@@ -1028,33 +1046,51 @@ RunPSA <- function(model, nsims, wtp, by) {
   psalist <- makeSims(nsims)
   
   # run PSA: split PSA inputs (psalist) into row by row lists, calculate PSA (using genPSA function)
-  psaTrace <- transpose(psalist) |>
-    pbsapply(FUN = genPSA, model = model)
+  # psaTrace <- transpose(psalist) |>
+  #   pbsapply(FUN = genPSA, model = model)
+  
+  psaTrace <- transpose(psalist)
+  p <- progressor(along = seq_along(psaTrace))
+
+  pT <- pbsapply(seq_along(psaTrace), function(x) {
+    
+    p(paste0("PSA iteration ", x, " of ", nsims))
+    genPSA(model = model, psalist = psaTrace[[x]])
+    #progress$inc(1/seq_along(psaTrace), detail = paste0("PSA iteration ", x, "/", seq_along(psaTrace)))
+    
+  })
   
   outList <- c("Incidence", "Mortality", "DALYs")
   names(outList) <- outList
-  
-  psaTraces <- pblapply(outList, 
-                FUN = function(x) data.table::setDF(data.table::rbindlist(psaTrace[x, ])))
+
+  psaTraces <- pblapply(outList,
+                FUN = function(x) {
+                  data.table::setDF(data.table::rbindlist(pT[x, ]))}
+                )
+  names(psaTraces) <- outList # name the traces
   
   # generate scatter plot
   # need to recover names of lists, so I do seq_along and add the name to the original function
   scatterPlots <- pblapply(seq_along(psaTraces), function(x) {
     ScatterPSA(psaTrace = psaTraces[[x]], named = names(psaTraces)[[x]])
-    
+
     })
   names(scatterPlots) <- names(psaTraces) # name the traces
 
   # run CEAC analysis
+  p <- progressor(along = seq_along(psaTraces))
+  #progress$inc(detail = "Generating CEAC")
   ceacTraces <- pblapply(psaTraces, RunCEAC, wtp = wtp, by = by)
+  p(c("Analyzing probability of cost effectiveness"))
   
+
   # generate CEAC
   # need to recover names of lists
   ceacPlots <- pblapply(seq_along(ceacTraces), function(x) {
     drawCEAC(ceacTrace = ceacTraces[[x]], named = names(ceacTraces)[[x]])
-    
+
   })
-  
+
   names(ceacPlots) <- names(ceacTraces)
 
   psaList <- structure(list(psaTraces = psaTraces,
@@ -1062,9 +1098,8 @@ RunPSA <- function(model, nsims, wtp, by) {
                             Plots = list(scatterPlots = scatterPlots, ceacPlots = ceacPlots)),
                        class = "psaOut"
   )
-  
+
   return(psaList)
-  
   
 }
 
@@ -1233,7 +1268,7 @@ outcomesPlot <- function(outcome, whichTab) {
                     data = whichTab[, 5],
                     stack = "Quintile2")
     
-    return(hw_grid(list(h1, h2)))
+    return(hw_grid(list(h1, h2), ncol = 1))
     
 }
 
