@@ -4,7 +4,8 @@ library(RColorBrewer)
 
 col <- brewer.pal(3,"Dark2")
 
-setwd("C:/Users/slubinga/Dropbox/Babijo-Solo Shared Resources/PPH")
+# Random-effects meta-analyses of placebo-controlled trials: PPH incidence and the
+# relative risk of PPH with misoprostol. Run from this folder (it reads the two CSVs here).
 d <- read.csv("pph_incidence1.csv", header = T)
 # subset these data by id==1
 newd <- subset(d, id==1)
