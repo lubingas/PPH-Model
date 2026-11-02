@@ -85,9 +85,10 @@ getCarePath <- function(Quintile, Intervention = TRUE) {
   pUnassDel     <- s$pUnassDel
   pFriendRelDel <- s$pFriendRelDel
   
-  # computations to make the probabilities work
+  # turn the survey shares (each a share of all births) into branch probabilities:
+  # unassisted as a share of home births, relative/friend as a share of assisted home births
   pUnassDel     <- pUnassDel / (1 - pHfDel)
-  pFriendRelDel <- pFriendRelDel / (1 - pUnassDel)
+  pFriendRelDel <- pFriendRelDel / ((1 - pHfDel) * (1 - pUnassDel))
   
   # apply treatment effect: intervention increases the odds of HF delivery
   pHfDel <- pHfDel * (Intervention==FALSE) + orHFDelivery*pHfDel/(1-pHfDel+(orHFDelivery*pHfDel)) * (Intervention==TRUE)
@@ -134,6 +135,12 @@ getTxPath <- function(Where, Intervention = TRUE) {
   pPPHOxy     <- s$pPPHbase * rPPHOxyPlacebo
   pPPHMiso    <- s$pPPHbase * s$rPPHMiso
   pPPH        <- s$pPPHbase
+
+  # misuse (a woman taking her own misoprostol before the birth) only happens with
+  # prenatal distribution; without it, misoprostol is given by staff
+  pMisuse     <- pMisuseMiso * (Intervention==TRUE)
+  # despite its name, pNoMisoAE is the probability of an adverse event after misuse
+  pAE         <- pNoMisoAE
   
   # calculate individual paths
   # PPH deaths: women who reach EmOC die at pDieEmOC, women who don't at pDieNoEmOC
@@ -144,22 +151,22 @@ getTxPath <- function(Where, Intervention = TRUE) {
     path04 = prod(pOxy, pPPHOxy, (1-pAccessEmOC), (1-pDieNoEmOC)),
     path05 = prod(pOxy, (1-pPPHOxy), pDieNoPPH),
     path06 = prod(pOxy, (1-pPPHOxy), (1-pDieNoPPH)),
-    path07 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), pPPHMiso, pAccessEmOC, pDieEmOC),
-    path08 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), pPPHMiso, pAccessEmOC, (1-pDieEmOC)),
-    path09 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), pPPHMiso, (1-pAccessEmOC), pDieNoEmOC),
-    path10 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), pPPHMiso, (1-pAccessEmOC), (1-pDieNoEmOC)),
-    path11 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), (1-pPPHMiso), pDieNoPPH),
-    path12 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), (1-pPPHMiso), (1-pDieNoPPH)),
-    path15 = prod((1-pOxy), pMisoAccess, pMisuseMiso, (1-pNoMisoAE), pUterineRuptureMiso, pDieUterineRupture),
-    path16 = prod((1-pOxy), pMisoAccess, pMisuseMiso, (1-pNoMisoAE), pUterineRuptureMiso, (1-pDieUterineRupture)),
-    path17 = prod((1-pOxy), pMisoAccess, pMisuseMiso, (1-pNoMisoAE), (1-pUterineRuptureMiso), pDieStillBirth),
-    path18 = prod((1-pOxy), pMisoAccess, pMisuseMiso, (1-pNoMisoAE), (1-pUterineRuptureMiso), (1-pDieStillBirth)),
-    path19 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, pPPH, pAccessEmOC, pDieEmOC),
-    path20 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, pPPH, pAccessEmOC, (1-pDieEmOC)),
-    path21 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, pPPH, (1-pAccessEmOC), pDieNoEmOC),
-    path22 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, pPPH, (1-pAccessEmOC), (1-pDieNoEmOC)),
-    path23 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, (1-pPPH), pDieNoPPH),
-    path24 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, (1-pPPH), (1-pDieNoPPH)),
+    path07 = prod((1-pOxy), pMisoAccess, (1-pMisuse), pPPHMiso, pAccessEmOC, pDieEmOC),
+    path08 = prod((1-pOxy), pMisoAccess, (1-pMisuse), pPPHMiso, pAccessEmOC, (1-pDieEmOC)),
+    path09 = prod((1-pOxy), pMisoAccess, (1-pMisuse), pPPHMiso, (1-pAccessEmOC), pDieNoEmOC),
+    path10 = prod((1-pOxy), pMisoAccess, (1-pMisuse), pPPHMiso, (1-pAccessEmOC), (1-pDieNoEmOC)),
+    path11 = prod((1-pOxy), pMisoAccess, (1-pMisuse), (1-pPPHMiso), pDieNoPPH),
+    path12 = prod((1-pOxy), pMisoAccess, (1-pMisuse), (1-pPPHMiso), (1-pDieNoPPH)),
+    path15 = prod((1-pOxy), pMisoAccess, pMisuse, pAE, pUterineRuptureMiso, pDieUterineRupture),
+    path16 = prod((1-pOxy), pMisoAccess, pMisuse, pAE, pUterineRuptureMiso, (1-pDieUterineRupture)),
+    path17 = prod((1-pOxy), pMisoAccess, pMisuse, pAE, (1-pUterineRuptureMiso), pDieStillBirth),
+    path18 = prod((1-pOxy), pMisoAccess, pMisuse, pAE, (1-pUterineRuptureMiso), (1-pDieStillBirth)),
+    path19 = prod((1-pOxy), pMisoAccess, pMisuse, (1-pAE), pPPH, pAccessEmOC, pDieEmOC),
+    path20 = prod((1-pOxy), pMisoAccess, pMisuse, (1-pAE), pPPH, pAccessEmOC, (1-pDieEmOC)),
+    path21 = prod((1-pOxy), pMisoAccess, pMisuse, (1-pAE), pPPH, (1-pAccessEmOC), pDieNoEmOC),
+    path22 = prod((1-pOxy), pMisoAccess, pMisuse, (1-pAE), pPPH, (1-pAccessEmOC), (1-pDieNoEmOC)),
+    path23 = prod((1-pOxy), pMisoAccess, pMisuse, (1-pAE), (1-pPPH), pDieNoPPH),
+    path24 = prod((1-pOxy), pMisoAccess, pMisuse, (1-pAE), (1-pPPH), (1-pDieNoPPH)),
     path27 = prod((1-pOxy), (1-pMisoAccess), pPPH, pAccessEmOC, pDieEmOC),
     path28 = prod((1-pOxy), (1-pMisoAccess), pPPH, pAccessEmOC, (1-pDieEmOC)),
     path29 = prod((1-pOxy), (1-pMisoAccess), pPPH, (1-pAccessEmOC), pDieNoEmOC),
@@ -258,15 +265,17 @@ getIncidencePath <- function(Where, Intervention = TRUE) {
   pPPHOxy     <- s$pPPHbase * rPPHOxyPlacebo
   pPPHMiso    <- s$pPPHbase * s$rPPHMiso
   pPPH        <- s$pPPHbase
-  
+  pMisuse     <- pMisuseMiso * (Intervention==TRUE)   # as in getTxPath
+  pAE         <- pNoMisoAE                            # probability of an adverse event after misuse
+
   # calculate individual paths
   pathlist <- c(
     path01 = prod(pOxy, pPPHOxy),
     path06 = prod(pOxy, (1-pPPHOxy)),
-    path07 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), pPPHMiso),
-    path12 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), (1-pPPHMiso)),
-    path15 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pPPH = 0), # no one gets PPH
-    path16 = prod((1-pOxy), pMisoAccess, pMisuseMiso, noPPH = 1), # no one gets PPH because either a uterine rupture or still birth
+    path07 = prod((1-pOxy), pMisoAccess, (1-pMisuse), pPPHMiso),
+    path12 = prod((1-pOxy), pMisoAccess, (1-pMisuse), (1-pPPHMiso)),
+    path15 = prod((1-pOxy), pMisoAccess, pMisuse, (1-pAE), pPPH),       # misuse, no adverse event, PPH
+    path16 = prod((1-pOxy), pMisoAccess, pMisuse, 1 - (1-pAE) * pPPH),  # misuse, no PPH (adverse event, or no PPH)
     path27 = prod((1-pOxy), (1-pMisoAccess), pPPH),
     path32 = prod((1-pOxy), (1-pMisoAccess), (1-pPPH))
   )
@@ -397,13 +406,13 @@ RunModel <- function(baseparms,
 
   # costs of Normal Delivery
   cNormalDeliveryHCSocietal <- cNormalDeliveryHC + dirNonMedHC + cOppCostNormDelPatient
-  cNormalDeliveryHospSocietal <- cNormalDeliveryHosp + dirNonMedHC + cOppCostNormDelPatient
+  cNormalDeliveryHospSocietal <- cNormalDeliveryHosp + dirNonMedHosp + cOppCostNormDelPatient
 
   # costs of treating a uterine rupture (only in hospital)
   cUterineRuptureSocietal <- cUterineRupture +  dirNonMedHosp + cOppCostRupturePatientTime
 
   # cost of a vaginal still birth equal to costs of a normal delivery
-  cVaginalStillBirthSocietal <- cVaginalStillBirth + dirNonMedHC + cOppCostNormDelPatient
+  cVaginalStillBirthSocietal <- cVaginalStillBirth + dirNonMedHosp + cOppCostNormDelPatient
 
   # normal delivery by TBA
   cNormalDeliveryHomeTBA <- cNormDelHomeTBA + cTravelTBA + cNormDelHomeFriend
@@ -668,8 +677,12 @@ print.modOut <- function(x, ...) {
 ## computed weighted sum of outcomes and returns the named dataframe
 weightSumOutcomes <- function(outcomesList, weights) {
   
-  wtOutcome <- sapply(outcomesList, "*", weights)  # 
+  wtOutcome <- sapply(outcomesList, "*", weights)  #
   wtSumOutcome <- apply(wtOutcome, MARGIN = 2, sum)
+  # the average ICER is the difference in average costs over the difference in average
+  # outcomes, not a weighted average of the quintile ICERs
+  wtSumOutcome["iCERSoc"] <- wtSumOutcome["deltaSocCosts"] / wtSumOutcome["deltaOutcome"]
+  wtSumOutcome["iCERGov"] <- wtSumOutcome["deltaGovCosts"] / wtSumOutcome["deltaOutcome"]
   wtSumOutcome <- rbind(outcomesList, wtSumOutcome)
   rownames(wtSumOutcome) <- c(rownames(outcomesList), "Average")
   return(wtSumOutcome)
