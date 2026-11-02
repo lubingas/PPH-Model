@@ -136,17 +136,18 @@ getTxPath <- function(Where, Intervention = TRUE) {
   pPPH        <- s$pPPHbase
   
   # calculate individual paths
+  # PPH deaths: women who reach EmOC die at pDieEmOC, women who don't at pDieNoEmOC
   pathlist <- c(
     path01 = prod(pOxy, pPPHOxy, pAccessEmOC, pDieEmOC),
     path02 = prod(pOxy, pPPHOxy, pAccessEmOC, (1-pDieEmOC)),
-    path03 = prod(pOxy, pPPHOxy, (1-pAccessEmOC), pDieEmOC),
-    path04 = prod(pOxy, pPPHOxy, (1-pAccessEmOC), (1-pDieEmOC)),
+    path03 = prod(pOxy, pPPHOxy, (1-pAccessEmOC), pDieNoEmOC),
+    path04 = prod(pOxy, pPPHOxy, (1-pAccessEmOC), (1-pDieNoEmOC)),
     path05 = prod(pOxy, (1-pPPHOxy), pDieNoPPH),
     path06 = prod(pOxy, (1-pPPHOxy), (1-pDieNoPPH)),
     path07 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), pPPHMiso, pAccessEmOC, pDieEmOC),
     path08 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), pPPHMiso, pAccessEmOC, (1-pDieEmOC)),
-    path09 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), pPPHMiso, (1-pAccessEmOC), pDieEmOC),
-    path10 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), pPPHMiso, (1-pAccessEmOC), (1-pDieEmOC)),
+    path09 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), pPPHMiso, (1-pAccessEmOC), pDieNoEmOC),
+    path10 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), pPPHMiso, (1-pAccessEmOC), (1-pDieNoEmOC)),
     path11 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), (1-pPPHMiso), pDieNoPPH),
     path12 = prod((1-pOxy), pMisoAccess, (1-pMisuseMiso), (1-pPPHMiso), (1-pDieNoPPH)),
     path15 = prod((1-pOxy), pMisoAccess, pMisuseMiso, (1-pNoMisoAE), pUterineRuptureMiso, pDieUterineRupture),
@@ -155,14 +156,14 @@ getTxPath <- function(Where, Intervention = TRUE) {
     path18 = prod((1-pOxy), pMisoAccess, pMisuseMiso, (1-pNoMisoAE), (1-pUterineRuptureMiso), (1-pDieStillBirth)),
     path19 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, pPPH, pAccessEmOC, pDieEmOC),
     path20 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, pPPH, pAccessEmOC, (1-pDieEmOC)),
-    path21 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, pPPH, (1-pAccessEmOC), pDieEmOC),
-    path22 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, pPPH, (1-pAccessEmOC), (1-pDieEmOC)),
+    path21 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, pPPH, (1-pAccessEmOC), pDieNoEmOC),
+    path22 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, pPPH, (1-pAccessEmOC), (1-pDieNoEmOC)),
     path23 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, (1-pPPH), pDieNoPPH),
     path24 = prod((1-pOxy), pMisoAccess, pMisuseMiso, pNoMisoAE, (1-pPPH), (1-pDieNoPPH)),
     path27 = prod((1-pOxy), (1-pMisoAccess), pPPH, pAccessEmOC, pDieEmOC),
     path28 = prod((1-pOxy), (1-pMisoAccess), pPPH, pAccessEmOC, (1-pDieEmOC)),
-    path29 = prod((1-pOxy), (1-pMisoAccess), pPPH, (1-pAccessEmOC), pDieEmOC),
-    path30 = prod((1-pOxy), (1-pMisoAccess), pPPH, (1-pAccessEmOC), (1-pDieEmOC)),
+    path29 = prod((1-pOxy), (1-pMisoAccess), pPPH, (1-pAccessEmOC), pDieNoEmOC),
+    path30 = prod((1-pOxy), (1-pMisoAccess), pPPH, (1-pAccessEmOC), (1-pDieNoEmOC)),
     path31 = prod((1-pOxy), (1-pMisoAccess), (1-pPPH), pDieNoPPH),
     path32 = prod((1-pOxy), (1-pMisoAccess), (1-pPPH), (1-pDieNoPPH))
   )
@@ -172,12 +173,15 @@ getTxPath <- function(Where, Intervention = TRUE) {
 }
 
 
+# DALY components for one condition at one age, as in the Excel model:
+#   YLL = discounted years of life lost if the woman dies at `age`, counted up to LE
+#   YLD = years lived with disability = disability weight x duration (in years)
 getDALYS <- function(age, LE, disabilitywt, duration, discFact) {
   ages     <- seq(age, LE, by = 1)
   index    <- 0:(length(ages) - 1)
   disc_vec <- 1 / (1 + discFact)^index
-  YLL      <- disabilitywt * duration
-  YLD      <- sum(disc_vec * c(1 - duration, rep(1, length(ages) - 2), 0.5))
+  YLL      <- sum(disc_vec * c(1 - duration, rep(1, length(ages) - 2), 0.5))
+  YLD      <- disabilitywt * duration
   return(c(YLL = YLL, YLD = YLD))
 }
 
@@ -369,9 +373,12 @@ RunModel <- function(baseparms,
     })
   
 
+  # dalysList holds one 2 x 3 matrix per age group: rows YLL and YLD,
+  # columns pph, rupture and stillbirth. Average over the age groups,
+  # weighting each group by its share of births.
   proportions <- c(isless20, is20to34, is35to49)
-  age_wt_DALYs <- lapply(dalysList, "%*%", proportions)
-  names(age_wt_DALYs) <- c("pph", "rupture", "stillbirth")
+  age_wt <- Reduce(`+`, Map(`*`, dalysList, proportions))
+  age_wt_DALYs <- list(pph = age_wt[, 1], rupture = age_wt[, 2], stillbirth = age_wt[, 3])
   
 
   ## opportunity cost calculations
@@ -419,18 +426,22 @@ RunModel <- function(baseparms,
   # calculate mortality
   mortality <- matrix(c(1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0), ncol = 1)
   
-  # order is die (apply YLL = age_wt_DALYs[1] & YLD = age_wt_DALYs[2]), live (apply YLD = age_wt_DALYs[2]) in model structure
-  # pph pay offs - repeat twice
-  pph_payoff <- rep(c(age_wt_DALYs$pph[1] + age_wt_DALYs$pph[2] * pSevereAnemiaEmOC,      # anemia, EmOC, die
-                      age_wt_DALYs$pph[2] * pSevereAnemiaEmOC,                            # anemia, EmOC, live
-                      age_wt_DALYs$pph[1] + age_wt_DALYs$pph[2] * pSevereAnemianoEmOC,    # anemia, noEmOC, die
-                      age_wt_DALYs$pph[2] * pSevereAnemianoEmOC,                          # anemia, noEmOC, live
-                      0,                                                                  # no pph, die
-                      0), 2)                                                              # no pph, live
-  
-  # complications - uterine rupture/still birth
-  compl_payoff <- c(sum(age_wt_DALYs$rupture), age_wt_DALYs$rupture[2],
-                    sum(age_wt_DALYs$stillbirth), age_wt_DALYs$stillbirth[2])
+  # DALY payoffs, named and built as in the Excel model
+  pphYLL     <- age_wt_DALYs$pph[["YLL"]];        pphYLD     <- age_wt_DALYs$pph[["YLD"]]
+  ruptureYLL <- age_wt_DALYs$rupture[["YLL"]];    ruptureYLD <- age_wt_DALYs$rupture[["YLD"]]
+  stillYLL   <- age_wt_DALYs$stillbirth[["YLL"]]; stillYLD   <- age_wt_DALYs$stillbirth[["YLD"]]
+
+  # PPH: a death adds YLL; severe anaemia adds YLD (repeated for the two halves of the tree)
+  pph_payoff <- rep(c(pphYLL + pphYLD * pSevereAnemiaEmOC,      # PPH, EmOC, die
+                      pphYLD * pSevereAnemiaEmOC,               # PPH, EmOC, live
+                      pphYLL + pphYLD * pSevereAnemianoEmOC,    # PPH, no EmOC, die
+                      pphYLD * pSevereAnemianoEmOC,             # PPH, no EmOC, live
+                      0,                                        # no PPH, die
+                      0), 2)                                    # no PPH, live
+
+  # complications of misuse - uterine rupture / stillbirth
+  compl_payoff <- c(ruptureYLL + ruptureYLD, ruptureYLD,
+                    stillYLL + stillYLD, stillYLD)
   
   
   DALYlist <- matrix(c(pph_payoff, compl_payoff, pph_payoff), ncol = 1)
