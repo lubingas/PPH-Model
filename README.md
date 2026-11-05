@@ -14,6 +14,7 @@ The model compares prenatal distribution of misoprostol with no misoprostol, by 
 - **Base case:** outcomes averted and incremental costs by wealth quintile, with ICERs for each perspective.
 - **One-way sensitivity analysis:** tornado diagrams showing which parameters move each result most.
 - **Probabilistic sensitivity analysis:** cost-effectiveness plane and acceptability curves from Monte Carlo draws.
+- **Threshold analysis:** how the ICERs change if the programme changes the odds of a health facility delivery (S3 Fig of the paper), and the odds ratios at which the programme saves money or crosses a willingness-to-pay threshold.
 
 Every chart has a menu for downloading it as PNG or SVG, or its data as CSV.
 
@@ -88,6 +89,8 @@ The ICER for the average woman is the difference in average costs over the diffe
 ### Sensitivity analyses
 
 The quintile shares and the maternal age groups are each drawn from a Dirichlet distribution whose parameters are the survey counts $\alpha$. In the one-way analysis each share $x_i$ is set to the 2.5% and 97.5% points of its own distribution, $\text{Beta}(\alpha_i, \sum_j \alpha_j - \alpha_i)$, and the others are rescaled so the set still adds up to 1: $x_j' = x_j\, (1 - x_i') / (1 - x_i)$. In the probabilistic analysis, probabilities and disability weights are drawn from beta distributions, relative risks from log-normal distributions, costs, travel time and life expectancy from normal distributions truncated at the low and high values, lengths of stay and durations from uniform distributions between the low and high values, and the shares from the Dirichlet distributions. The discount rate varies only in the one-way analysis (0 to 5%).
+
+In the threshold analysis the odds ratio OR of a facility birth with the programme runs from 0.01 up to 50 (or a chosen maximum), the same in every quintile, as in S3 Fig of the paper. Where an ICER crosses zero or the willingness to pay, the model is rerun to find the odds ratio exactly. The ICERs rise with the odds ratio: with the base-case inputs the programme saves money below an odds ratio of 0.21 (governmental) or 0.13 (societal), and its cost per DALY averted levels off at $217 (governmental) and $174 (societal) as every woman comes to deliver in a facility. The paper's Excel model gave 0.48; the R model corrects errors in that model, so its base case and thresholds differ.
 
 | Symbol | Input in `pph_data_input.xlsx` (or `global.R`) | Base case |
 |---|---|---|

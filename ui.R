@@ -25,7 +25,9 @@ dashboardPage(
         menuSubItem("One-way (OWSA)", tabName = "owsatab",
                     icon = icon("sliders-h",  lib = "font-awesome")),
         menuSubItem("Probabilistic",  tabName = "psatab",
-                    icon = icon("line-chart", lib = "font-awesome"))
+                    icon = icon("line-chart", lib = "font-awesome")),
+        menuSubItem("Threshold (facility births)", tabName = "thresholdtab",
+                    icon = icon("chart-line", lib = "font-awesome"))
       )
     ),
     div(
@@ -494,6 +496,49 @@ dashboardPage(
                   highchartOutput("dsaIncidencePlots4", height = "520px"))
               )
             )
+          )
+        ))
+      ),
+
+      # ═══════════════════ THRESHOLD: ODDS RATIO OF A FACILITY BIRTH ═══════════════════
+      tabItem(tabName = "thresholdtab",
+
+        # Inline settings
+        fluidRow(column(12,
+          bs4Card(width = NULL, class = "sa-settings", solidHeader = FALSE,
+            collapsible = TRUE, collapsed = FALSE,
+            title = tags$span(icon("sliders-h"), " Threshold analysis settings"),
+            fluidRow(
+              column(3,
+                selectInput("thr_outcome", "Outcome:", width = "100%",
+                            choices = c("DALYs averted" = "DALYs", "Deaths averted" = "Mortality",
+                                        "PPH cases averted" = "Incidence"))),
+              column(3,
+                numericInput("thr_maxor", "Largest odds ratio:", value = 50, min = 2, max = 100,
+                             step = 1, width = "100%")),
+              column(3,
+                numericInput("thr_wtp", "WTP (US$ per DALY averted):", value = 1641, min = 0,
+                             step = 100, width = "100%")),
+              column(3, br(),
+                actionButton("runthr", "Run threshold analysis", icon = icon("play"),
+                             class = "btn-primary", width = "100%"))
+            ),
+            checkboxInput("thr_log", "Log scale for the odds ratio", value = FALSE),
+            div(class = "info-note mt-2",
+              icon("info-circle"),
+              " The base case assumes the programme doesn't change where women deliver (odds ratio 1).",
+              " This reruns the model with the odds of a health facility delivery multiplied by each odds ratio",
+              " from 0.01 to the largest, the same in every wealth quintile, as in S3 Fig of the paper.",
+              " The WTP line is drawn for DALYs.")
+          )
+        )),
+
+        # Chart and thresholds
+        fluidRow(column(12,
+          bs4Card(width = NULL, solidHeader = FALSE, collapsible = FALSE,
+            title = tags$span(icon("chart-line"), " ICERs by odds ratio of a health facility delivery"),
+            highchartOutput("thrPlot", height = "480px"),
+            uiOutput("thrSummary")
           )
         ))
       ),

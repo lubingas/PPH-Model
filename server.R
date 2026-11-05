@@ -334,6 +334,82 @@ shinyServer(function(input, output, session) {
   output$psaMortalityCEACPlot    <- renderHighchart({ PSARun()$Plots$ceacPlots$Mortality })
   output$psaDALYsCEACPlot        <- renderHighchart({ PSARun()$Plots$ceacPlots$DALYs })
 
+  # ── Threshold analysis: odds ratio of a health facility delivery ────────────
+
+  ThresholdRun <- reactive({
+    req(isTruthy(input$thr_maxor), input$thr_maxor > 1)
+    baseInputs <- makeBaseCaseInputs(rv$df)
+    # 200 odds ratios, evenly spaced on a log scale from 0.01 to the largest, plus the base case (1)
+    ors <- sort(unique(c(exp(seq(log(0.01), log(input$thr_maxor), length.out = 200)), 1)))
+    withProgressShiny(message = "Running threshold analysis …", value = 0, {
+      list(tab    = runORThreshold(baseInputs$baseinputs, baseInputs$basetransitions, ors),
+           # where the ICERs level off as the odds ratio grows (every woman delivers in a facility)
+           limit  = runORThreshold(baseInputs$baseinputs, baseInputs$basetransitions, 1e6),
+           inputs = baseInputs)
+    })
+  }) |> bindEvent(input$runthr)
+
+  # the WTP line and threshold are for DALYs only
+  thrWTP <- reactive({
+    if (input$thr_outcome == "DALYs" && isTruthy(input$thr_wtp)) input$thr_wtp else NULL
+  })
+
+  output$thrPlot <- renderHighchart({
+    run <- ThresholdRun()
+    ThresholdPlot(tab   = run$tab[run$tab$outcome == input$thr_outcome, ],
+                  named = input$thr_outcome,
+                  wtp   = thrWTP(),
+                  log_x = isTRUE(input$thr_log))
+  })
+
+  # where each ICER crosses zero (and the WTP), found by rerunning the model between grid points
+  output$thrSummary <- renderUI({
+    run <- ThresholdRun()
+    o   <- input$thr_outcome
+    tab <- run$tab[run$tab$outcome == o, ]
+    lim <- run$limit[run$limit$outcome == o, ]
+    wtp <- thrWTP()
+
+    unit  <- switch(o, DALYs = "DALY averted", Mortality = "death averted", Incidence = "PPH case averted")
+    money <- function(x) paste0(if (x < 0) "−$" else "$", format(round(abs(x)), big.mark = ","))
+    orFmt <- function(x) formatC(x, format = "f", digits = 2)
+    maxOR <- format(signif(max(tab$OR), 3))
+
+    sentence <- function(p, label) {
+      icer  <- tab[[p]]
+      cross <- function(v) findORCrossing(run$inputs$baseinputs, run$inputs$basetransitions, tab, o, p, v)
+
+      x0 <- cross(0)
+      saving <- if (!is.na(x0)) {
+        paste0("saves money when the odds ratio is ", if (icer[1] < 0) "below " else "above ", orFmt(x0))
+      } else if (all(icer < 0)) {
+        "saves money at every odds ratio run"
+      } else {
+        paste0("doesn't save money at any odds ratio from 0.01 to ", maxOR)
+      }
+
+      overWTP <- if (is.null(wtp)) "" else {
+        xw <- cross(wtp)
+        if (!is.na(xw)) {
+          paste0(", and costs more than ", money(wtp), " per ", unit, " when the odds ratio is ",
+                 if (tail(icer, 1) > wtp) "above " else "below ", orFmt(xw))
+        } else if (all(icer < wtp)) {
+          paste0(", and costs less than ", money(wtp), " per ", unit, " at every odds ratio up to ", maxOR)
+        } else {
+          paste0(", and costs more than ", money(wtp), " per ", unit, " at every odds ratio run")
+        }
+      }
+
+      tags$li(tags$strong(label, .noWS = "after"),
+              paste0(": the programme ", saving, overWTP, ". As the odds ratio grows, the cost per ",
+                     unit, " levels off at ", money(lim[[p]]), "."))
+    }
+
+    tags$ul(class = "mt-3",
+            sentence("iCERGov", "Governmental perspective"),
+            sentence("iCERSoc", "Societal perspective"))
+  })
+
   # ── Tables (used by TabulateOutcomes) ──────────────────────────────────────
 
   output$IncidenceTable <- render_gt({

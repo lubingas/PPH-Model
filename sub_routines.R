@@ -1423,6 +1423,111 @@ drawCEAC <- function(ceacTrace, named) {
     hc_title(text = "Cost-effectiveness acceptability curve")
 }
 
+#### THRESHOLD ANALYSIS: ODDS RATIO OF A HEALTH FACILITY DELIVERY ####
+# The base case assumes the programme doesn't change where women deliver (orHFDelivery = 1).
+# As in S3 Fig of the paper, the model is rerun over a range of odds ratios, the same in every
+# wealth quintile, to see how the ICERs change and where they cross zero or the WTP.
+
+## function to run the model at each odds ratio of a health facility delivery under the programme
+## INSTRUCTIONS
+# 1) baseparms, basetransitions: as for RunModel(), e.g. from makeBaseCaseInputs()
+# 2) ors: the odds ratios to run
+# returns a data frame: a row per odds ratio and outcome, with the outcome averted per woman and
+# the ICERs from both perspectives, for the average woman
+runORThreshold <- function(baseparms, basetransitions, ors) {
+
+  do.call(rbind, lapply(ors, function(or) {
+    parms <- baseparms
+    parms[["orHFDelivery"]] <- or
+    m <- RunModel(baseparms = parms, basetransitions = basetransitions)
+    tabs <- list(DALYs = m$DALYS, Mortality = m$Mortality, Incidence = m$Incidence)
+    data.frame(OR      = or,
+               outcome = names(tabs),
+               averted = sapply(tabs, function(x) x["Average", "deltaOutcome"]),
+               iCERGov = sapply(tabs, function(x) x["Average", "iCERGov"]),
+               iCERSoc = sapply(tabs, function(x) x["Average", "iCERSoc"]),
+               row.names = NULL)
+  }))
+
+}
+
+## function to find the odds ratio at which an ICER crosses a value (0, or the WTP)
+## INSTRUCTIONS
+# 1) baseparms, basetransitions: as for RunModel()
+# 2) tab: rows of runORThreshold() for one outcome, in increasing order of OR
+# 3) outcome: "DALYs", "Mortality" or "Incidence"
+# 4) perspective: "iCERGov" or "iCERSoc"
+# 5) value: the ICER to cross
+# returns the odds ratio, or NA if the ICER doesn't cross the value within the odds ratios run;
+# the crossing is found between the two runs either side of it, by rerunning the model
+findORCrossing <- function(baseparms, basetransitions, tab, outcome, perspective, value) {
+
+  gap <- tab[[perspective]] - value
+  i <- which(diff(sign(gap)) != 0)[1]
+  if (is.na(i)) return(NA_real_)
+
+  tabName <- switch(outcome, DALYs = "DALYS", Mortality = "Mortality", Incidence = "Incidence")
+  icerGap <- function(log_or) {
+    parms <- baseparms
+    parms[["orHFDelivery"]] <- exp(log_or)
+    RunModel(baseparms = parms, basetransitions = basetransitions)[[tabName]]["Average", perspective] - value
+  }
+
+  exp(uniroot(icerGap, interval = log(tab$OR[c(i, i + 1)]), tol = 1e-8)$root)
+
+}
+
+## function to draw the ICERs against the odds ratio of a health facility delivery
+## INSTRUCTIONS
+# 1) tab: rows of runORThreshold() for one outcome
+# 2) named: "DALYs", "Mortality" or "Incidence"
+# 3) wtp: willingness to pay, drawn as a line (NULL for none)
+# 4) log_x: TRUE for a log scale on the odds ratio
+ThresholdPlot <- function(tab, named, wtp = NULL, log_x = FALSE) {
+
+  isPerName <- switch(named,
+                      Incidence = "PPH case averted",
+                      Mortality = "death averted",
+                      DALYs     = "DALY averted")
+
+  pts <- function(col) list_parse2(data.frame(x = tab$OR, y = tab[[col]]))
+
+  # dollar labels with a minus sign before the $ (-$100, not $-100)
+  money <- JS("function () { return (this.value < 0 ? '\u2212$' : '$') + Highcharts.numberFormat(Math.abs(this.value), 0); }")
+
+  # lines at no extra cost (below it the programme saves money) and at the WTP
+  yLines <- list(list(value = 0, color = chart_cols$ink2, width = 1, zIndex = 3,
+                      label = list(text = "Cost-saving below this line", align = "right", x = -4,
+                                   style = list(color = chart_cols$ink2))))
+  if (!is.null(wtp)) {
+    yLines <- c(yLines, list(list(value = wtp, color = chart_cols$ink2, width = 1, dashStyle = "Dash", zIndex = 3,
+                                  label = list(text = sprintf("WTP $%s", format(wtp, big.mark = ",")),
+                                               align = "right", x = -4, style = list(color = chart_cols$ink2)))))
+  }
+
+  highchart() |>
+    hc_chart(type = "line") |>
+    hc_add_series(name = "Governmental perspective", data = pts("iCERGov"), color = chart_cols$gov,
+                  lineWidth = 2, marker = list(enabled = FALSE)) |>
+    hc_add_series(name = "Societal perspective",     data = pts("iCERSoc"), color = chart_cols$soc,
+                  lineWidth = 2, marker = list(enabled = FALSE)) |>
+    hc_yAxis(labels = list(formatter = money), plotLines = yLines,
+             softMax = wtp,   # keep the WTP line in view, as the paper's axis ran to $1,000
+             title = list(text = paste0("US$ per ", isPerName))) |>
+    hc_xAxis(type = if (log_x) "logarithmic" else "linear",
+             min = if (log_x) min(tab$OR) else 0, max = max(tab$OR),
+             crosshair = TRUE, gridLineWidth = 0,
+             plotLines = list(list(value = 1, color = chart_cols$muted, width = 1, dashStyle = "Dot",
+                                   label = list(text = "Base case", rotation = 0, y = 14,
+                                                style = list(color = chart_cols$muted)))),
+             title = list(text = "Odds ratio of a health facility delivery with the programme")) |>
+    hc_tooltip(shared = TRUE, headerFormat = "Odds ratio <b>{point.key:.2f}</b><br>",
+               pointFormatter = JS("function () { return this.series.name + ': <b>' + (this.y < 0 ? '\u2212$' : '$') +
+                                    Highcharts.numberFormat(Math.abs(this.y), 0) + '</b><br>'; }")) |>
+    hc_legend(align = "left", verticalAlign = "top") |>
+    hc_title(text = paste0("Cost per ", isPerName, " and the odds ratio of a health facility delivery"))
+}
+
 #### BASE CASE: BY WEALTH QUINTILE ####
 # Two charts per outcome, both indexed by wealth quintile with the weighted
 # average for all women as the last, shaded column:

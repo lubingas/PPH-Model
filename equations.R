@@ -65,6 +65,8 @@ model_equations <- function() {
       "set still adds up to 1, \\(x_j' = x_j\\,(1 - x_i')/(1 - x_i)\\). In the probabilistic analysis, probabilities and disability weights are drawn from beta distributions, ",
       "relative risks from log-normal distributions, costs, travel time and life expectancy from normal distributions truncated at the low and high values, lengths of stay and ",
       "durations from uniform distributions, and the shares from the Dirichlet distributions. The discount rate varies only in the one-way analysis (0 to 5%)."),
+    p("In the threshold analysis the odds ratio OR of a facility birth with the programme runs from 0.01 up to a chosen maximum, the same in every quintile, ",
+      "as in S3 Fig of the paper. Where an ICER crosses zero or the willingness to pay, the model is rerun to find the odds ratio exactly."),
     p(class = "info-note", "Every symbol is an input on the Parameters tab; the README on GitHub lists which input each one is.")
   )
 }
