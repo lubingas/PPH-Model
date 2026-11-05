@@ -102,6 +102,16 @@ interventions <- c("Misoprostol", "No Misoprostol")
 # Load parameter spreadsheet
 data <- read_excel("pph_data_input.xlsx", sheet = 1)
 
+# parameters in the spreadsheet that the model doesn't use: left out, so they are not drawn in the
+# PSA, varied in the one-way analysis or listed in the app (they stay in pph_data_input.xlsx).
+# The TBA shares are what is left after the friend/relative shares; the nurse-aide pay, private-midwife
+# delivery cost, exchange rate and working hours fed the Excel cost sheets, whose results are inputs here;
+# oxytocin is not misused; PPH is treated at hospital rates wherever the woman delivered
+unused_parameters <- c("pTBADelLowQ", "pTBADelSecQ", "pTBADelMidQ", "pTBADelFourQ", "pTBADelHighQ",
+                       "cNurseAide", "cNormalDeliveryHomeNurse", "exchangerate", "hours",
+                       "pMisuseOxy", "cPPHManagementHC")
+data <- data[!(data$variable %in% unused_parameters), ]
+
 # Readable labels for parameters in the tornado diagrams (variable -> Description)
 param_labels <- setNames(trimws(data$Description), data$variable)[!is.na(data$variable)]
 

@@ -427,8 +427,7 @@ RunModel <- function(baseparms,
   dirNonMedHC <- params[["cTravelHC"]] + params[["cUpkeepHC"]]
   dirNonMedHosp <- params[["cTravelHospital"]] + params[["cUpkeepHospital"]]
 
-  # costs of PPH management
-  cPPHManagementHCSocietal <- params[["cPPHManagementHC"]] + dirNonMedHC + cOppCostPPHPatientTime
+  # costs of PPH management (at hospital rates, wherever the woman delivered, as in the Excel model)
   cPPHManagementHospSocietal <- params[["cPPHManagementHosp"]] + dirNonMedHosp + cOppCostPPHPatientTime
 
   # costs of Normal Delivery

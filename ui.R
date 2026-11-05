@@ -343,8 +343,7 @@ dashboardPage(
                       "Health facility delivery"      = "HF delivery probability",
                       "Hospital delivery"             = "Hospital delivery probability",
                       "Unassisted delivery"           = "Unassisted delivery",
-                      "Friend or relative at delivery"= "Friend/relative delivery",
-                      "TBA at delivery"               = "TBA delivery"),
+                      "Friend or relative at delivery"= "Friend/relative delivery"),
                     "Uterotonic access" = c(
                       "Oxytocin coverage"                   = "Oxytocin coverage",
                       "Misoprostol coverage (programme)"    = "Misoprostol coverage (programme)",
