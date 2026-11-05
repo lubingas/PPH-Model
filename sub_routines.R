@@ -191,14 +191,19 @@ getTxPath <- function(params, Where, Intervention = "Miso") {
 }
 
 
-# DALY components for one condition at one age, as in the Excel model:
+# DALY components for one condition at one age:
 #   YLL = discounted years of life lost if the woman dies at `age`, counted up to LE
 #   YLD = years lived with disability = disability weight x duration (in years)
+# One entry per year of life lost: whole years, then the part-year left at the end
+# (half a year when LE = 62.5). The first year loses the time already counted as YLD.
+# Each year is discounted from its start, as in the Excel model.
 getDALYS <- function(age, LE, disabilitywt, duration, discFact) {
-  ages     <- seq(age, LE, by = 1)
-  index    <- 0:(length(ages) - 1)
+  yrs_left <- LE - age
+  index    <- 0:(ceiling(yrs_left) - 1)
+  share    <- pmin(1, yrs_left - index)
+  share[1] <- share[1] - duration
   disc_vec <- 1 / (1 + discFact)^index
-  YLL      <- sum(disc_vec * c(1 - duration, rep(1, length(ages) - 2), 0.5))
+  YLL      <- sum(disc_vec * share)
   YLD      <- disabilitywt * duration
   return(c(YLL = YLL, YLD = YLD))
 }
@@ -386,7 +391,7 @@ RunModel <- function(baseparms,
 
   # every model parameter in one named vector, read with params[["name"]] and
   # passed explicitly to each helper function
-  # (global.R constants such as age, discFact and TxTrjList are still read from global.R)
+  # (global.R constants such as age and TxTrjList are still read from global.R)
   params <- c(baseparms, basetransitions)
 
   # use mapply to iterate over lists of duration and disability weights
@@ -396,7 +401,7 @@ RunModel <- function(baseparms,
     mapply(FUN = getDALYS,
            disabilitywt = list(params[["disabilitywtPPH"]], params[["disabilitywtRupture"]], params[["disabilitywtStillBirth"]]),
            duration = list(params[["durationPPH"]], params[["durationUterineRupture"]], params[["durationStillBirth"]]),
-           MoreArgs = list(age = x, LE = LifeExp, discFact = discFact))
+           MoreArgs = list(age = x, LE = params[["lifeexpectancy"]], discFact = params[["cDiscountCosts"]]))
     })
 
 
@@ -414,6 +419,7 @@ RunModel <- function(baseparms,
 
   cNormDelHomeFriend <- (cProductivity/procDaysYr)*params[["avgFriendTime"]]
   cOppCostPPHPatientTime <- ((params[["averageLOSPPH"]]*cProductivity)/procDaysYr)+((averageTravelTime*cProductivity)/(procDaysYr*procHrsDay))
+  # the woman's own time recovering at home after a home birth (no travel)
   OppCostPatientTimeHome <- ((params[["averageLOSHome"]]*cProductivity)/procDaysYr)
   cOppCostRupturePatientTime <- ((params[["averageLOSUterineRupture"]]*cProductivity)/procDaysYr)+((averageTravelTime*cProductivity)/(procDaysYr*procHrsDay))
   cOppCostNormDelPatient <- ((params[["averageLOSNormDel"]]*cProductivity)/procDaysYr)+((averageTravelTime*cProductivity)/(procDaysYr*procHrsDay))
@@ -435,14 +441,14 @@ RunModel <- function(baseparms,
   # cost of a vaginal still birth equal to costs of a normal delivery
   cVaginalStillBirthSocietal <- params[["cVaginalStillBirth"]] + dirNonMedHosp + cOppCostNormDelPatient
 
-  # normal delivery by TBA
-  cNormalDeliveryHomeTBA <- params[["cNormDelHomeTBA"]] + params[["cTravelTBA"]] + cNormDelHomeFriend
+  # normal delivery by TBA: TBA fee + travel to the TBA + the helper's time + the woman's own time
+  cNormalDeliveryHomeTBA <- params[["cNormDelHomeTBA"]] + params[["cTravelTBA"]] + cNormDelHomeFriend + OppCostPatientTimeHome
 
-  # normal delivery by friend
-  cNormalDeliveryHomeFriend <- cNormDelHomeFriend
+  # normal delivery by friend: the helper's time + the woman's own time
+  cNormalDeliveryHomeFriend <- cNormDelHomeFriend + OppCostPatientTimeHome
 
-  # normal delivery home unassisted
-  cNormalDeliveryHomeUnass <- cOppCostNormDelPatient
+  # normal delivery home unassisted: the woman's own time only
+  cNormalDeliveryHomeUnass <- OppCostPatientTimeHome
 
   # calculate misoprostol program costs
   cMisoprostolProgram <- getMisoProgCosts(nWomen, nHW, cTrain, daysTraining, params[["cNurse"]], nNurse, nurseFTE, params[["cMisoprostol"]], cPackage)

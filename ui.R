@@ -233,6 +233,15 @@ dashboardPage(
           )
         )),
 
+        # How the model calculates results
+        fluidRow(column(12,
+          bs4Card(width = NULL, solidHeader = TRUE, status = "secondary",
+            title = tags$span(icon("calculator"), " How the model calculates results"),
+            collapsible = TRUE, collapsed = TRUE,
+            model_equations()
+          )
+        )),
+
         # Key findings
         fluidRow(column(12,
           bs4Card(width = NULL, solidHeader = TRUE, status = "success",

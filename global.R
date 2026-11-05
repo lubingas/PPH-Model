@@ -94,6 +94,7 @@ local({
 
 # ── Model functions ───────────────────────────────────────────────────────────
 source("sub_routines.R")
+source("equations.R")
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 interventions <- c("Misoprostol", "No Misoprostol")
@@ -105,11 +106,11 @@ data <- read_excel("pph_data_input.xlsx", sheet = 1)
 param_labels <- setNames(trimws(data$Description), data$variable)[!is.na(data$variable)]
 
 # General model constants (not varied in sensitivity analyses)
-discFact   <- 0.03
+# (life expectancy and the discount rate are read from the spreadsheet:
+#  lifeexpectancy and cDiscountCosts)
 procDaysYr <- 264
 procHrsDay <- 8
 age        <- c(18, 27, 42)
-LifeExp    <- 63
 
 # Misoprostol programme cost parameters
 nWomen      <- 10000
