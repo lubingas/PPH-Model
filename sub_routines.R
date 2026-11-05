@@ -44,17 +44,13 @@ makeOWSAInputs <- function(data) {
     pull(basecase, variable) |>
     split(rep(1:2, c(5, 3)))
   names(basetransitions) <- c("Quintiles", "AgeDistribution")
-  
-  dir <- lapply(basetransitions, idirichlet)
-  
-  unname(dir)
-  
-  dir_lowinputs <- list(dir$Quintiles$lower, dir$AgeDistribution$lower)
-  names(dir_lowinputs) <- c("Quintiles", "AgeDistribution")
-  dir_highinputs <- list(dir$Quintiles$upper, dir$AgeDistribution$upper)
-  names(dir_highinputs) <- c("Quintiles", "AgeDistribution")
-  
-  return(list(usa.low = usa.low, 
+
+  # 95% interval of each share, from its marginal Beta(a_i, sum(a) - a_i), where a = the counts
+  # (the same counts are the Dirichlet parameters in the PSA)
+  dir_lowinputs  <- lapply(basetransitions, function(a) qbeta(0.025, a, sum(a) - a))
+  dir_highinputs <- lapply(basetransitions, function(a) qbeta(0.975, a, sum(a) - a))
+
+  return(list(usa.low = usa.low,
               usa.high = usa.high,
               dir_lowinputs = dir_lowinputs, 
               dir_highinputs = dir_highinputs))
@@ -63,22 +59,25 @@ makeOWSAInputs <- function(data) {
 
 
 # function calculates care path depending on wealth quintile
-# Intervention = TRUE will apply the treatment effects (in this function on odds of HF delivery)
-getCarePath <- function(Quintile, Intervention = TRUE) {
-  
+# Intervention = "Miso" will apply the treatment effects (in this function on odds of HF delivery)
+getCarePath <- function(params, Quintile, Intervention = "Miso") {
+
+  stopifnot(Intervention %in% c("Miso", "NoMiso"))
+
   # Look up the four delivery-probability parameters for this quintile
   s <- switch(Quintile,
-    Lowest  = list(pHfDel = pHfDelLowQ,  pHospDel = pHospDelLowQ,
-                   pUnassDel = pUnassDelLowQ,  pFriendRelDel = pFriendRelDelLowQ),
-    Second  = list(pHfDel = pHfDelSecQ,  pHospDel = pHospDelSecQ,
-                   pUnassDel = pUnassDelSecQ,  pFriendRelDel = pFriendRelDelSecQ),
-    Middle  = list(pHfDel = pHfDelMidQ,  pHospDel = pHospDelMidQ,
-                   pUnassDel = pUnassDelMidQ,  pFriendRelDel = pFriendRelDelMidQ),
-    Fourth  = list(pHfDel = pHfDelFourQ, pHospDel = pHospDelFourQ,
-                   pUnassDel = pUnassDelFourQ, pFriendRelDel = pFriendRelDelFourQ),
-    Highest = list(pHfDel = pHfDelHighQ, pHospDel = pHospDelHighQ,
-                   pUnassDel = pUnassDelHighQ, pFriendRelDel = pFriendRelDelHighQ)
+    Lowest  = list(pHfDel = params[["pHfDelLowQ"]],  pHospDel = params[["pHospDelLowQ"]],
+                   pUnassDel = params[["pUnassDelLowQ"]],  pFriendRelDel = params[["pFriendRelDelLowQ"]]),
+    Second  = list(pHfDel = params[["pHfDelSecQ"]],  pHospDel = params[["pHospDelSecQ"]],
+                   pUnassDel = params[["pUnassDelSecQ"]],  pFriendRelDel = params[["pFriendRelDelSecQ"]]),
+    Middle  = list(pHfDel = params[["pHfDelMidQ"]],  pHospDel = params[["pHospDelMidQ"]],
+                   pUnassDel = params[["pUnassDelMidQ"]],  pFriendRelDel = params[["pFriendRelDelMidQ"]]),
+    Fourth  = list(pHfDel = params[["pHfDelFourQ"]], pHospDel = params[["pHospDelFourQ"]],
+                   pUnassDel = params[["pUnassDelFourQ"]], pFriendRelDel = params[["pFriendRelDelFourQ"]]),
+    Highest = list(pHfDel = params[["pHfDelHighQ"]], pHospDel = params[["pHospDelHighQ"]],
+                   pUnassDel = params[["pUnassDelHighQ"]], pFriendRelDel = params[["pFriendRelDelHighQ"]])
   )
+  orHFDelivery <- params[["orHFDelivery"]]
   
   pHfDel        <- s$pHfDel
   pHospDel      <- s$pHospDel
@@ -91,7 +90,9 @@ getCarePath <- function(Quintile, Intervention = TRUE) {
   pFriendRelDel <- pFriendRelDel / ((1 - pHfDel) * (1 - pUnassDel))
   
   # apply treatment effect: intervention increases the odds of HF delivery
-  pHfDel <- pHfDel * (Intervention==FALSE) + orHFDelivery*pHfDel/(1-pHfDel+(orHFDelivery*pHfDel)) * (Intervention==TRUE)
+  pHfDel <- switch(Intervention,
+                   NoMiso = pHfDel,
+                   Miso   = orHFDelivery*pHfDel/(1-pHfDel+(orHFDelivery*pHfDel)))
   
   # calculate product of path probabilities
   hosp   <- prod(pHfDel, pHospDel)
@@ -106,42 +107,52 @@ getCarePath <- function(Quintile, Intervention = TRUE) {
 
 
 # function calculates care path: 32 different possibilities per care pathway (5 care pathways)
-# Intervention = TRUE will apply the treatment effects, higher access to miso with intervention
-getTxPath <- function(Where, Intervention = TRUE) {
-  
+# Intervention = "Miso" will apply the treatment effects, higher access to miso with intervention
+getTxPath <- function(params, Where, Intervention = "Miso") {
+
+  stopifnot(Intervention %in% c("Miso", "NoMiso"))
+
   # Look up per-setting parameters: oxytocin access, EmOC access, miso coverage
   # (intervention vs control), and PPH base rate + miso efficacy ratio
   s <- switch(Where,
-    Hospital   = list(pOxy = pOxyHosp,      pAccessEmOC = pAccessEmOCHosp,
-                      pMisoI = pMisoAccessHospMisoPolicy, pMisoC = pMisoAccessHospOxyPolicy,
-                      pPPHbase = pHospPPH,  rPPHMiso = rPPHMisoHF),
-    HC         = list(pOxy = pOxyHC,         pAccessEmOC = pAccessEmOCHC,
-                      pMisoI = pMisoAccessHCMisoPolicy,   pMisoC = pMisoAccessHCOxyPolicy,
-                      pPPHbase = pHospPPH,  rPPHMiso = rPPHMisoHF),
-    Friend     = list(pOxy = pOxyHomeFriend, pAccessEmOC = pAccessEmOCFriend,
-                      pMisoI = pMisoAccessHomeFriendMisoPolicy, pMisoC = pMisoAccessHomeOxyPolicy,
-                      pPPHbase = pHomePPH,  rPPHMiso = rPPHMisoOxy),
-    TBA        = list(pOxy = pOxyHomeTBA,    pAccessEmOC = pAccessEmOCTBA,
-                      pMisoI = pMisoAccessHomeTBAMisoPolicy,    pMisoC = pMisoAccessHomeOxyPolicy,
-                      pPPHbase = pHomePPH,  rPPHMiso = rPPHMisoOxy),
-    Unassisted = list(pOxy = pOxyHomeUnass,  pAccessEmOC = pAccessEmOCUnass,
-                      pMisoI = pMisoAccessHomeUnassMisoPolicy,  pMisoC = pMisoAccessHomeOxyPolicy,
-                      pPPHbase = pHomePPH,  rPPHMiso = rPPHMisoOxy)
+    Hospital   = list(pOxy = params[["pOxyHosp"]],      pAccessEmOC = params[["pAccessEmOCHosp"]],
+                      pMisoI = params[["pMisoAccessHospMisoPolicy"]], pMisoC = params[["pMisoAccessHospOxyPolicy"]],
+                      pPPHbase = params[["pHospPPH"]],  rPPHMiso = params[["rPPHMisoHF"]]),
+    HC         = list(pOxy = params[["pOxyHC"]],         pAccessEmOC = params[["pAccessEmOCHC"]],
+                      pMisoI = params[["pMisoAccessHCMisoPolicy"]],   pMisoC = params[["pMisoAccessHCOxyPolicy"]],
+                      pPPHbase = params[["pHospPPH"]],  rPPHMiso = params[["rPPHMisoHF"]]),
+    Friend     = list(pOxy = params[["pOxyHomeFriend"]], pAccessEmOC = params[["pAccessEmOCFriend"]],
+                      pMisoI = params[["pMisoAccessHomeFriendMisoPolicy"]], pMisoC = params[["pMisoAccessHomeOxyPolicy"]],
+                      pPPHbase = params[["pHomePPH"]],  rPPHMiso = params[["rPPHMisoOxy"]]),
+    TBA        = list(pOxy = params[["pOxyHomeTBA"]],    pAccessEmOC = params[["pAccessEmOCTBA"]],
+                      pMisoI = params[["pMisoAccessHomeTBAMisoPolicy"]],    pMisoC = params[["pMisoAccessHomeOxyPolicy"]],
+                      pPPHbase = params[["pHomePPH"]],  rPPHMiso = params[["rPPHMisoOxy"]]),
+    Unassisted = list(pOxy = params[["pOxyHomeUnass"]],  pAccessEmOC = params[["pAccessEmOCUnass"]],
+                      pMisoI = params[["pMisoAccessHomeUnassMisoPolicy"]],  pMisoC = params[["pMisoAccessHomeOxyPolicy"]],
+                      pPPHbase = params[["pHomePPH"]],  rPPHMiso = params[["rPPHMisoOxy"]])
   )
-  
+
   pOxy        <- s$pOxy
   pAccessEmOC <- s$pAccessEmOC
-  pMisoAccess <- s$pMisoI * (Intervention==TRUE) + s$pMisoC * (Intervention==FALSE)
-  pPPHOxy     <- s$pPPHbase * rPPHOxyPlacebo
+  pMisoAccess <- switch(Intervention, Miso = s$pMisoI, NoMiso = s$pMisoC)
+  pPPHOxy     <- s$pPPHbase * params[["rPPHOxyPlacebo"]]
   pPPHMiso    <- s$pPPHbase * s$rPPHMiso
   pPPH        <- s$pPPHbase
 
   # misuse (a woman taking her own misoprostol before the birth) only happens with
   # prenatal distribution; without it, misoprostol is given by staff
-  pMisuse     <- pMisuseMiso * (Intervention==TRUE)
+  pMisuse     <- switch(Intervention, Miso = params[["pMisuseMiso"]], NoMiso = 0)
   # despite its name, pNoMisoAE is the probability of an adverse event after misuse
-  pAE         <- pNoMisoAE
-  
+  pAE         <- params[["pNoMisoAE"]]
+
+  # outcome probabilities used in the paths below
+  pDieEmOC            <- params[["pDieEmOC"]]
+  pDieNoEmOC          <- params[["pDieNoEmOC"]]
+  pDieNoPPH           <- params[["pDieNoPPH"]]
+  pUterineRuptureMiso <- params[["pUterineRuptureMiso"]]
+  pDieUterineRupture  <- params[["pDieUterineRupture"]]
+  pDieStillBirth      <- params[["pDieStillBirth"]]
+
   # calculate individual paths
   # PPH deaths: women who reach EmOC die at pDieEmOC, women who don't at pDieNoEmOC
   pathlist <- c(
@@ -192,17 +203,29 @@ getDALYS <- function(age, LE, disabilitywt, duration, discFact) {
   return(c(YLL = YLL, YLD = YLD))
 }
 
-getCareCost <- function(Societal = TRUE, Intervention = TRUE) {
-  
+getCareCost <- function(params, Perspective = "Societal", Intervention = "Miso") {
+
+  stopifnot(Perspective %in% c("Societal", "Governmental"), Intervention %in% c("Miso", "NoMiso"))
+
   # calculate individual cost paths
   # to preserve structure with the paths module, set places where there is no cost to zero
-  cOxy <- ifelse(Intervention, (cOxytocin + cDestruction), cOxytocin)
-  cMisoAccess <- ifelse(Intervention, 0, cMisoprostol) #  patient can still access Miso in HF if in Intervention; for intervention I add cMisoprostol to everyone
-  
-  cAccessEmOC <- ifelse(Societal, cPPHManagementHospSocietal, cPPHManagementHosp)
-  cUterineRupture <- ifelse(Societal, cUterineRuptureSocietal, cUterineRupture)
-  cVaginalStillBirth <- ifelse(Societal, cVaginalStillBirthSocietal, cVaginalStillBirth)
-  
+  cOxy <- switch(Intervention,
+                 Miso   = params[["cOxytocin"]] + params[["cDestruction"]],
+                 NoMiso = params[["cOxytocin"]])
+  # patient can still access Miso in HF if in Intervention; for intervention I add cMisoprostol to everyone
+  cMisoAccess <- switch(Intervention, Miso = 0, NoMiso = params[["cMisoprostol"]])
+
+  cAccessEmOC <- switch(Perspective,
+                        Societal     = params[["cPPHManagementHospSocietal"]],
+                        Governmental = params[["cPPHManagementHosp"]])
+  cUterineRupture <- switch(Perspective,
+                            Societal     = params[["cUterineRuptureSocietal"]],
+                            Governmental = params[["cUterineRupture"]])
+  cVaginalStillBirth <- switch(Perspective,
+                               Societal     = params[["cVaginalStillBirthSocietal"]],
+                               Governmental = params[["cVaginalStillBirth"]])
+  cMortality <- params[["cMortality"]]
+
   costlist <- c(
     cost01 = sum(cOxy, cPPH = 0, cAccessEmOC, cDieEmOC = cMortality),
     cost02 = sum(cOxy, cPPH = 0, cAccessEmOC, cAliveEmOC = 0),
@@ -239,34 +262,36 @@ getCareCost <- function(Societal = TRUE, Intervention = TRUE) {
 }
 
 
-getIncidencePath <- function(Where, Intervention = TRUE) {
-  
+getIncidencePath <- function(params, Where, Intervention = "Miso") {
+
+  stopifnot(Intervention %in% c("Miso", "NoMiso"))
+
   # Same lookup as getTxPath but without EmOC access (incidence only)
   s <- switch(Where,
-    Hospital   = list(pOxy = pOxyHosp,
-                      pMisoI = pMisoAccessHospMisoPolicy, pMisoC = pMisoAccessHospOxyPolicy,
-                      pPPHbase = pHospPPH,  rPPHMiso = rPPHMisoHF),
-    HC         = list(pOxy = pOxyHC,
-                      pMisoI = pMisoAccessHCMisoPolicy,   pMisoC = pMisoAccessHCOxyPolicy,
-                      pPPHbase = pHospPPH,  rPPHMiso = rPPHMisoHF),
-    Friend     = list(pOxy = pOxyHomeFriend,
-                      pMisoI = pMisoAccessHomeFriendMisoPolicy, pMisoC = pMisoAccessHomeOxyPolicy,
-                      pPPHbase = pHomePPH,  rPPHMiso = rPPHMisoOxy),
-    TBA        = list(pOxy = pOxyHomeTBA,
-                      pMisoI = pMisoAccessHomeTBAMisoPolicy,    pMisoC = pMisoAccessHomeOxyPolicy,
-                      pPPHbase = pHomePPH,  rPPHMiso = rPPHMisoOxy),
-    Unassisted = list(pOxy = pOxyHomeUnass,
-                      pMisoI = pMisoAccessHomeUnassMisoPolicy,  pMisoC = pMisoAccessHomeOxyPolicy,
-                      pPPHbase = pHomePPH,  rPPHMiso = rPPHMisoOxy)
+    Hospital   = list(pOxy = params[["pOxyHosp"]],
+                      pMisoI = params[["pMisoAccessHospMisoPolicy"]], pMisoC = params[["pMisoAccessHospOxyPolicy"]],
+                      pPPHbase = params[["pHospPPH"]],  rPPHMiso = params[["rPPHMisoHF"]]),
+    HC         = list(pOxy = params[["pOxyHC"]],
+                      pMisoI = params[["pMisoAccessHCMisoPolicy"]],   pMisoC = params[["pMisoAccessHCOxyPolicy"]],
+                      pPPHbase = params[["pHospPPH"]],  rPPHMiso = params[["rPPHMisoHF"]]),
+    Friend     = list(pOxy = params[["pOxyHomeFriend"]],
+                      pMisoI = params[["pMisoAccessHomeFriendMisoPolicy"]], pMisoC = params[["pMisoAccessHomeOxyPolicy"]],
+                      pPPHbase = params[["pHomePPH"]],  rPPHMiso = params[["rPPHMisoOxy"]]),
+    TBA        = list(pOxy = params[["pOxyHomeTBA"]],
+                      pMisoI = params[["pMisoAccessHomeTBAMisoPolicy"]],    pMisoC = params[["pMisoAccessHomeOxyPolicy"]],
+                      pPPHbase = params[["pHomePPH"]],  rPPHMiso = params[["rPPHMisoOxy"]]),
+    Unassisted = list(pOxy = params[["pOxyHomeUnass"]],
+                      pMisoI = params[["pMisoAccessHomeUnassMisoPolicy"]],  pMisoC = params[["pMisoAccessHomeOxyPolicy"]],
+                      pPPHbase = params[["pHomePPH"]],  rPPHMiso = params[["rPPHMisoOxy"]])
   )
-  
+
   pOxy        <- s$pOxy
-  pMisoAccess <- s$pMisoI * (Intervention==TRUE) + s$pMisoC * (Intervention==FALSE)
-  pPPHOxy     <- s$pPPHbase * rPPHOxyPlacebo
+  pMisoAccess <- switch(Intervention, Miso = s$pMisoI, NoMiso = s$pMisoC)
+  pPPHOxy     <- s$pPPHbase * params[["rPPHOxyPlacebo"]]
   pPPHMiso    <- s$pPPHbase * s$rPPHMiso
   pPPH        <- s$pPPHbase
-  pMisuse     <- pMisuseMiso * (Intervention==TRUE)   # as in getTxPath
-  pAE         <- pNoMisoAE                            # probability of an adverse event after misuse
+  pMisuse     <- switch(Intervention, Miso = params[["pMisuseMiso"]], NoMiso = 0)   # as in getTxPath
+  pAE         <- params[["pNoMisoAE"]]                            # probability of an adverse event after misuse
 
   # calculate individual paths
   pathlist <- c(
@@ -287,12 +312,18 @@ getIncidencePath <- function(Where, Intervention = TRUE) {
 
 
 
-getIncidenceCost <- function(Societal = TRUE, Intervention = TRUE) {
-  
+# Perspective is not used: incidence costs are the same from both perspectives
+getIncidenceCost <- function(params, Perspective = "Societal", Intervention = "Miso") {
+
+  stopifnot(Intervention %in% c("Miso", "NoMiso"))
+
   # calculate individual cost paths
   # to preserve structure with the paths module, set places where there is no cost to zero
-  cOxy <- ifelse(Intervention, (cOxytocin + cDestruction), cOxytocin)
-  cMisoAccess <- ifelse(Intervention, 0, cMisoprostol) #  patient can still access Miso in HF if in Intervention; for intervention I add cMisoprostol to everyone
+  cOxy <- switch(Intervention,
+                 Miso   = params[["cOxytocin"]] + params[["cDestruction"]],
+                 NoMiso = params[["cOxytocin"]])
+  # patient can still access Miso in HF if in Intervention; for intervention I add cMisoprostol to everyone
+  cMisoAccess <- switch(Intervention, Miso = 0, NoMiso = params[["cMisoprostol"]])
   
   IncidCostlist <- c(
     cost01 = sum(cOxy, cPPH = 0),
@@ -310,26 +341,27 @@ getIncidenceCost <- function(Societal = TRUE, Intervention = TRUE) {
 }
 
 
-# function calculates care path depending on wealth quintile
-# Intervention = TRUE will apply the treatment effects (in this function on odds of HF delivery)
-getAccessCost <- function(Societal = TRUE, Intervention = TRUE) {
-  
-  cHospDel <- ifelse(Societal, cNormalDeliveryHospSocietal, cNormalDeliveryHosp)
-  cHCDel <- ifelse(Societal, cNormalDeliveryHCSocietal, cNormalDeliveryHC)
-  cFriendRelDel <- ifelse(Societal, cNormalDeliveryHomeFriend, 0)
-  cDelTBA <- ifelse(Societal, cNormalDeliveryHomeTBA, 0)
-  cDelUnass <- ifelse(Societal, cNormalDeliveryHomeUnass, 0)
-  
-  ProgramCost <- ifelse(Intervention, cMisoprostolProgram, 0)
-  
-  # calculate product of path probabilities
-  hosp   <- cHospDel + ProgramCost
-  hc     <- cHCDel + ProgramCost
-  friend <- cFriendRelDel + ProgramCost
-  TBA    <- cDelTBA + ProgramCost
-  unass  <- cDelUnass + ProgramCost
-  
-  return(c(hospital = hosp, hc = hc, friend = friend, TBA = TBA, unass = unass))
+# function calculates the cost of reaching each place of delivery
+# Intervention = "Miso" adds the misoprostol programme cost
+getAccessCost <- function(params, Perspective = "Societal", Intervention = "Miso") {
+
+  stopifnot(Perspective %in% c("Societal", "Governmental"), Intervention %in% c("Miso", "NoMiso"))
+
+  # cost of a normal delivery in each setting; home deliveries cost the government nothing
+  cDel <- switch(Perspective,
+    Societal     = c(hospital = params[["cNormalDeliveryHospSocietal"]],
+                     hc       = params[["cNormalDeliveryHCSocietal"]],
+                     friend   = params[["cNormalDeliveryHomeFriend"]],
+                     TBA      = params[["cNormalDeliveryHomeTBA"]],
+                     unass    = params[["cNormalDeliveryHomeUnass"]]),
+    Governmental = c(hospital = params[["cNormalDeliveryHosp"]],
+                     hc       = params[["cNormalDeliveryHC"]],
+                     friend   = 0, TBA = 0, unass = 0))
+
+  # every woman in the intervention arm carries the misoprostol programme cost
+  ProgramCost <- switch(Intervention, Miso = params[["cMisoprostolProgram"]], NoMiso = 0)
+
+  return(cDel + ProgramCost)
   
 }
 
@@ -352,70 +384,59 @@ RunModel <- function(baseparms,
                      basetransitions, 
                      makePlots = FALSE) {
 
-  # list2env() is the safe replacement for attach(): it creates a private
-  # parameter environment (penv) rather than polluting the global search path.
-  # parent = environment() lets penv inherit RunModel's frame, so global
-  # constants (age, discFact, TxTrjList, etc.) remain reachable.
-  penv <- list2env(as.list(c(baseparms, basetransitions)), parent = environment())
+  # every model parameter in one named vector, read with params[["name"]] and
+  # passed explicitly to each helper function
+  # (global.R constants such as age, discFact and TxTrjList are still read from global.R)
+  params <- c(baseparms, basetransitions)
 
-  local(envir = penv, {
-
-  # Every function that reads model parameters directly by name (rather than
-  # receiving them as arguments) must have its environment set to penv.
-  # attach() did this implicitly for all functions via the search path;
-  # with list2env + local() we do it explicitly for each one.
-  environment(getCarePath)      <- environment()
-  environment(getTxPath)        <- environment()
-  environment(getIncidencePath) <- environment()
-  environment(getIncidenceCost) <- environment()
-  environment(getCareCost)      <- environment()
-  environment(getAccessCost)    <- environment()
-  
   # use mapply to iterate over lists of duration and disability weights
-  # apply mapply function to the middle "ages" in the model 
+  # apply mapply function to the middle "ages" in the model
   dalysList <- lapply(age, FUN = function(x) {
-    
-    mapply(FUN = getDALYS, 
-           disabilitywt = list(disabilitywtPPH, disabilitywtRupture, disabilitywtStillBirth),
-           duration = list(durationPPH, durationUterineRupture, durationStillBirth),
+
+    mapply(FUN = getDALYS,
+           disabilitywt = list(params[["disabilitywtPPH"]], params[["disabilitywtRupture"]], params[["disabilitywtStillBirth"]]),
+           duration = list(params[["durationPPH"]], params[["durationUterineRupture"]], params[["durationStillBirth"]]),
            MoreArgs = list(age = x, LE = LifeExp, discFact = discFact))
     })
-  
+
 
   # dalysList holds one 2 x 3 matrix per age group: rows YLL and YLD,
   # columns pph, rupture and stillbirth. Average over the age groups,
   # weighting each group by its share of births.
-  proportions <- c(isless20, is20to34, is35to49)
+  proportions <- c(params[["isless20"]], params[["is20to34"]], params[["is35to49"]])
   age_wt <- Reduce(`+`, Map(`*`, dalysList, proportions))
   age_wt_DALYs <- list(pph = age_wt[, 1], rupture = age_wt[, 2], stillbirth = age_wt[, 3])
   
 
   ## opportunity cost calculations
-  cNormDelHomeFriend <- (cProductivity/procDaysYr)*avgFriendTime
-  cOppCostPPHPatientTime <- ((averageLOSPPH*cProductivity)/procDaysYr)+((averageTravelTime*cProductivity)/(procDaysYr*procHrsDay))
-  OppCostPatientTimeHome <- ((averageLOSHome*cProductivity)/procDaysYr)
-  cOppCostRupturePatientTime <- ((averageLOSUterineRupture*cProductivity)/procDaysYr)+((averageTravelTime*cProductivity)/(procDaysYr*procHrsDay))
-  cOppCostNormDelPatient <- ((averageLOSNormDel*cProductivity)/procDaysYr)+((averageTravelTime*cProductivity)/(procDaysYr*procHrsDay))
+  cProductivity     <- params[["cProductivity"]]
+  averageTravelTime <- params[["averageTravelTime"]]
 
-  dirNonMedHC <- cTravelHC + cUpkeepHC
-  dirNonMedHosp <- cTravelHospital + cUpkeepHospital
+  cNormDelHomeFriend <- (cProductivity/procDaysYr)*params[["avgFriendTime"]]
+  cOppCostPPHPatientTime <- ((params[["averageLOSPPH"]]*cProductivity)/procDaysYr)+((averageTravelTime*cProductivity)/(procDaysYr*procHrsDay))
+  OppCostPatientTimeHome <- ((params[["averageLOSHome"]]*cProductivity)/procDaysYr)
+  cOppCostRupturePatientTime <- ((params[["averageLOSUterineRupture"]]*cProductivity)/procDaysYr)+((averageTravelTime*cProductivity)/(procDaysYr*procHrsDay))
+  cOppCostNormDelPatient <- ((params[["averageLOSNormDel"]]*cProductivity)/procDaysYr)+((averageTravelTime*cProductivity)/(procDaysYr*procHrsDay))
+
+  dirNonMedHC <- params[["cTravelHC"]] + params[["cUpkeepHC"]]
+  dirNonMedHosp <- params[["cTravelHospital"]] + params[["cUpkeepHospital"]]
 
   # costs of PPH management
-  cPPHManagementHCSocietal <- cPPHManagementHC + dirNonMedHC + cOppCostPPHPatientTime
-  cPPHManagementHospSocietal <- cPPHManagementHosp + dirNonMedHosp + cOppCostPPHPatientTime
+  cPPHManagementHCSocietal <- params[["cPPHManagementHC"]] + dirNonMedHC + cOppCostPPHPatientTime
+  cPPHManagementHospSocietal <- params[["cPPHManagementHosp"]] + dirNonMedHosp + cOppCostPPHPatientTime
 
   # costs of Normal Delivery
-  cNormalDeliveryHCSocietal <- cNormalDeliveryHC + dirNonMedHC + cOppCostNormDelPatient
-  cNormalDeliveryHospSocietal <- cNormalDeliveryHosp + dirNonMedHosp + cOppCostNormDelPatient
+  cNormalDeliveryHCSocietal <- params[["cNormalDeliveryHC"]] + dirNonMedHC + cOppCostNormDelPatient
+  cNormalDeliveryHospSocietal <- params[["cNormalDeliveryHosp"]] + dirNonMedHosp + cOppCostNormDelPatient
 
   # costs of treating a uterine rupture (only in hospital)
-  cUterineRuptureSocietal <- cUterineRupture +  dirNonMedHosp + cOppCostRupturePatientTime
+  cUterineRuptureSocietal <- params[["cUterineRupture"]] +  dirNonMedHosp + cOppCostRupturePatientTime
 
   # cost of a vaginal still birth equal to costs of a normal delivery
-  cVaginalStillBirthSocietal <- cVaginalStillBirth + dirNonMedHosp + cOppCostNormDelPatient
+  cVaginalStillBirthSocietal <- params[["cVaginalStillBirth"]] + dirNonMedHosp + cOppCostNormDelPatient
 
   # normal delivery by TBA
-  cNormalDeliveryHomeTBA <- cNormDelHomeTBA + cTravelTBA + cNormDelHomeFriend
+  cNormalDeliveryHomeTBA <- params[["cNormDelHomeTBA"]] + params[["cTravelTBA"]] + cNormDelHomeFriend
 
   # normal delivery by friend
   cNormalDeliveryHomeFriend <- cNormDelHomeFriend
@@ -424,7 +445,19 @@ RunModel <- function(baseparms,
   cNormalDeliveryHomeUnass <- cOppCostNormDelPatient
 
   # calculate misoprostol program costs
-  cMisoprostolProgram <- getMisoProgCosts(nWomen, nHW, cTrain, daysTraining, cNurse, nNurse, nurseFTE, cMisoprostol, cPackage)
+  cMisoprostolProgram <- getMisoProgCosts(nWomen, nHW, cTrain, daysTraining, params[["cNurse"]], nNurse, nurseFTE, params[["cMisoprostol"]], cPackage)
+
+  # add the derived costs to params, so the helper functions read them from params too
+  params <- c(params,
+              cPPHManagementHospSocietal  = cPPHManagementHospSocietal,
+              cNormalDeliveryHospSocietal = cNormalDeliveryHospSocietal,
+              cNormalDeliveryHCSocietal   = cNormalDeliveryHCSocietal,
+              cUterineRuptureSocietal     = cUterineRuptureSocietal,
+              cVaginalStillBirthSocietal  = cVaginalStillBirthSocietal,
+              cNormalDeliveryHomeTBA      = cNormalDeliveryHomeTBA,
+              cNormalDeliveryHomeFriend   = cNormalDeliveryHomeFriend,
+              cNormalDeliveryHomeUnass    = cNormalDeliveryHomeUnass,
+              cMisoprostolProgram         = cMisoprostolProgram)
 
   ### PAYOFF VECTORS, convert everything to matrix then tibble to ease calculations
   # # calculate incidence
@@ -441,6 +474,8 @@ RunModel <- function(baseparms,
   stillYLL   <- age_wt_DALYs$stillbirth[["YLL"]]; stillYLD   <- age_wt_DALYs$stillbirth[["YLD"]]
 
   # PPH: a death adds YLL; severe anaemia adds YLD (repeated for the two halves of the tree)
+  pSevereAnemiaEmOC   <- params[["pSevereAnemiaEmOC"]]
+  pSevereAnemianoEmOC <- params[["pSevereAnemianoEmOC"]]
   pph_payoff <- rep(c(pphYLL + pphYLD * pSevereAnemiaEmOC,      # PPH, EmOC, die
                       pphYLD * pSevereAnemiaEmOC,               # PPH, EmOC, live
                       pphYLL + pphYLD * pSevereAnemianoEmOC,    # PPH, no EmOC, die
@@ -455,66 +490,62 @@ RunModel <- function(baseparms,
   
   DALYlist <- matrix(c(pph_payoff, compl_payoff, pph_payoff), ncol = 1)
   
-  apply_intervention <- c(NoMiso = FALSE, Miso = TRUE)
-  
+  apply_intervention <- c(NoMiso = "NoMiso", Miso = "Miso")
+
   # TREATMENT TRAJECTORIES
-  # apply getTxPath function to each treatment trajectory list, then to each intervention arm
-  # return TxTrajectory list with trajectory for each treatment arm
+  # apply getTxPath function to each place of delivery, then to each intervention arm
+  # each arm is a matrix: a row per path, a column per place of delivery
   TxTrajectory <- lapply(apply_intervention, FUN = function (x) {
-    lapply(TxTrjList, FUN = getTxPath, Intervention = x)}
+    sapply(TxTrjList, FUN = getTxPath, params = params, Intervention = x)}
     )
-  
-  # TxTrajectory_NoMiso <- lapply(TxTrjList, FUN = getTxPath, Intervention = FALSE)
-  # TxTrajectory_Miso <- lapply(TxTrjList, FUN = getTxPath, Intervention = TRUE)
-  
+
   # # INCIDENCE ONLY TRAJECTORY
   IncidTrajectory <- lapply(apply_intervention, FUN = function (x) {
-    lapply(TxTrjList, FUN = getIncidencePath, Intervention = x)}
+    sapply(TxTrjList, FUN = getIncidencePath, params = params, Intervention = x)}
   )
   
   # # CAREPATHWAY TRAJECTORIES
   # now apply getCarePath function to each Quintile list, then to each intervention arm
   # return TxTrajectory list with trajectory for each treatment arm
   CareTrajectory <- lapply(apply_intervention, FUN = function (x) {
-    lapply(QuintileList, FUN = getCarePath, Intervention = x)}
+    lapply(QuintileList, FUN = getCarePath, params = params, Intervention = x)}
   )
   
-  # mapply applies "outer" function to 
+  # for each quintile, multiply each column (place of delivery) of the path matrix
+  # by the share of women in that quintile who deliver there
+  # (rep(x, each = ) repeats each share down its column)
   noMisoAll <- lapply(CareTrajectory$NoMiso, FUN = function(x) {
-    mapply(FUN = outer, TxTrajectory$NoMiso, x)
+    TxTrajectory$NoMiso * rep(x, each = nrow(TxTrajectory$NoMiso))
   })
-  
+
   MisoAll <- lapply(CareTrajectory$Miso, FUN = function(x) {
-    mapply(FUN = outer, TxTrajectory$Miso, x)
+    TxTrajectory$Miso * rep(x, each = nrow(TxTrajectory$Miso))
   })
-  
+
   # apply to incidence tables
   IncidnoMisoAll <- lapply(CareTrajectory$NoMiso, FUN = function(x) {
-    mapply(FUN = outer, IncidTrajectory$NoMiso, x)
+    IncidTrajectory$NoMiso * rep(x, each = nrow(IncidTrajectory$NoMiso))
   })
-  
+
   IncidMisoAll <- lapply(CareTrajectory$Miso, FUN = function(x) {
-    mapply(FUN = outer, IncidTrajectory$Miso, x)
+    IncidTrajectory$Miso * rep(x, each = nrow(IncidTrajectory$Miso))
   })
   
   
   # # COST for TREATMENT TRAJECTORIES
-  perspective <- c(Societal = TRUE, Governmental = FALSE)
-  
+  perspective <- c(Societal = "Societal", Governmental = "Governmental")
+
   CareCost <- lapply(apply_intervention, FUN = function(x) {
-    sapply(perspective, getCareCost, x)
+    sapply(perspective, getCareCost, params = params, Intervention = x)
   })
   
   IncidCost <- lapply(apply_intervention, FUN = function(x) {
-    sapply(perspective, getIncidenceCost, x)
+    sapply(perspective, getIncidenceCost, params = params, Intervention = x)
   })
 
   AccessCost <- lapply(apply_intervention, FUN = function(x) {
-    sapply(perspective, getAccessCost, x)
+    sapply(perspective, getAccessCost, params = params, Intervention = x)
   })
-  
-  perp <- c("Societal", "Governmental")
-  names(perp) <- perp
   
   CostCalc <- function(x) {
     
@@ -524,22 +555,14 @@ RunModel <- function(baseparms,
     IncidCareMiso <- t(outer(AccessCost$Miso[, x], IncidCost$Miso[, x], FUN = "+"))
     
     # compute total care costs
-    totCareMiso <- sapply(lapply(MisoAll, FUN = function(z) {
-      mapply("*", z, totalCareMiso)
-    }), sum)
+    totCareMiso <- sapply(MisoAll, FUN = function(z) sum(z * c(totalCareMiso)))
     
-    totCareNoMiso <- sapply(lapply(noMisoAll, FUN = function(z) {
-      mapply("*", z, totalCareNoMiso)
-    }), sum)
+    totCareNoMiso <- sapply(noMisoAll, FUN = function(z) sum(z * c(totalCareNoMiso)))
     
     # compute incidence costs
-    IncCareMiso <- sapply(lapply(IncidMisoAll, FUN = function(z) {
-      mapply("*", z, IncidCareMiso)
-    }), sum)
+    IncCareMiso <- sapply(IncidMisoAll, FUN = function(z) sum(z * c(IncidCareMiso)))
     
-    IncCareNoMiso <- sapply(lapply(IncidnoMisoAll, FUN = function(z) {
-      mapply("*", z, IncidCareNoMiso)
-    }), sum)
+    IncCareNoMiso <- sapply(IncidnoMisoAll, FUN = function(z) sum(z * c(IncidCareNoMiso)))
     
     return(list(totCareNoMiso = totCareNoMiso,
                 totCareMiso = totCareMiso,
@@ -548,35 +571,29 @@ RunModel <- function(baseparms,
     
   }
   
-  allCosts <- lapply(perp, FUN = CostCalc)
+  allCosts <- lapply(perspective, FUN = CostCalc)
   
   # # The rest of the final math here - outcomes by wealth quintile
   # # INCIDENCE
-  IncidenceNoMiso <- sapply(lapply(IncidnoMisoAll, FUN = function(x) {
-    mapply("*", x, incidence)}), sum)
+  IncidenceNoMiso <- sapply(IncidnoMisoAll, FUN = function(x) sum(x * c(incidence)))
   
-  IncidenceMiso <- sapply(lapply(IncidMisoAll, FUN = function(x) {
-    mapply("*", x, incidence)}), sum)
+  IncidenceMiso <- sapply(IncidMisoAll, FUN = function(x) sum(x * c(incidence)))
 
   # # MORTALITY
-  mortalityNoMiso <- sapply(lapply(noMisoAll, FUN = function(x) {
-    mapply("*", x, mortality)}), sum)
+  mortalityNoMiso <- sapply(noMisoAll, FUN = function(x) sum(x * c(mortality)))
   
-  mortalityMiso <- sapply(lapply(MisoAll, FUN = function(x) {
-    mapply("*", x, mortality)}), sum)
+  mortalityMiso <- sapply(MisoAll, FUN = function(x) sum(x * c(mortality)))
   
   # # DALYs
-  DALYsNoMiso <- sapply(lapply(noMisoAll, FUN = function(x) {
-    mapply("*", x, DALYlist)}), sum)
+  DALYsNoMiso <- sapply(noMisoAll, FUN = function(x) sum(x * c(DALYlist)))
   
-  DALYsMiso <- sapply(lapply(MisoAll, FUN = function(x) {
-    mapply("*", x, DALYlist)}), sum)
+  DALYsMiso <- sapply(MisoAll, FUN = function(x) sum(x * c(DALYlist)))
   
   # # sum everything, then weight by proportions in each quantile
   # # done above with lapply and sum
   # 
   # now weight outcomes and total
-  wts <- c(pLowQuintile, pSecQuintile, pMidQuintile, pFourthQuintile, pHighQuintile)
+  wts <- c(params[["pLowQuintile"]], params[["pSecQuintile"]], params[["pMidQuintile"]], params[["pFourthQuintile"]], params[["pHighQuintile"]])
   
   #return(allCosts)
   
@@ -586,8 +603,8 @@ RunModel <- function(baseparms,
   GovCostsIncidNoMiso <- allCosts$Governmental$IncCareNoMiso
   GovCostsIncidMiso <- allCosts$Governmental$IncCareMiso
 
-  # collect Incidence outcomes
-  IncidOutcomes <- data.frame(IncidenceNoMiso = IncidenceNoMiso, IncidenceMiso = IncidenceMiso, deltaOutcome = (IncidenceNoMiso - IncidenceMiso),
+  # collect Incidence outcomes (a matrix: a row per quintile, a column per result)
+  IncidOutcomes <- cbind(IncidenceNoMiso = IncidenceNoMiso, IncidenceMiso = IncidenceMiso, deltaOutcome = (IncidenceNoMiso - IncidenceMiso),
                               SocCostsIncidNoMiso, SocCostsIncidMiso, deltaSocCosts = (SocCostsIncidMiso - SocCostsIncidNoMiso),
                               GovCostsIncidNoMiso, GovCostsIncidMiso, deltaGovCosts = (GovCostsIncidMiso - GovCostsIncidNoMiso),
                               iCERSoc = (SocCostsIncidMiso - SocCostsIncidNoMiso)/(IncidenceNoMiso - IncidenceMiso),
@@ -602,7 +619,7 @@ RunModel <- function(baseparms,
   GovCostsNoMiso = allCosts$Governmental$totCareNoMiso
 
   # collect Mortality outcomes
-  MortOutcomes <- data.frame(mortalityNoMiso = mortalityNoMiso, mortalityMiso = mortalityMiso, deltaOutcome = (mortalityNoMiso - mortalityMiso),
+  MortOutcomes <- cbind(mortalityNoMiso = mortalityNoMiso, mortalityMiso = mortalityMiso, deltaOutcome = (mortalityNoMiso - mortalityMiso),
                              SocCostsNoMiso, SocCostsMiso, deltaSocCosts = (SocCostsMiso - SocCostsNoMiso),
                              GovCostsNoMiso, GovCostsMiso, deltaGovCosts = (GovCostsMiso - GovCostsNoMiso),
                              iCERSoc = (SocCostsMiso - SocCostsNoMiso)/(mortalityNoMiso - mortalityMiso),
@@ -613,7 +630,7 @@ RunModel <- function(baseparms,
 
 
   # collect DALY outcomes
-  DALYOutcomes <- data.frame(DALYsNoMiso = DALYsNoMiso, DALYsMiso = DALYsMiso, deltaOutcome = (DALYsNoMiso - DALYsMiso),
+  DALYOutcomes <- cbind(DALYsNoMiso = DALYsNoMiso, DALYsMiso = DALYsMiso, deltaOutcome = (DALYsNoMiso - DALYsMiso),
                              SocCostsMiso, SocCostsNoMiso, deltaSocCosts = (SocCostsMiso - SocCostsNoMiso),
                              GovCostsMiso, GovCostsNoMiso, deltaGovCosts = (GovCostsMiso - GovCostsNoMiso),
                              iCERSoc = (SocCostsMiso - SocCostsNoMiso)/(DALYsNoMiso - DALYsMiso),
@@ -640,8 +657,7 @@ RunModel <- function(baseparms,
   # TableMortality <- TabulateOutcomes(data = wtMortOutcomes, decimals = 4, scale = 1)
   # TableDALYs <- TabulateOutcomes(data = wtDALYOutcomes, decimals = 4, scale = 1)
   
-  # The last expression in local() is its return value, which becomes
-  # the return value of RunModel().
+  # the last expression is the return value of RunModel()
   if (makePlots) {
     structure(list(Incidence  = wtIncidOutcomes,
                    Mortality  = wtMortOutcomes,
@@ -661,7 +677,6 @@ RunModel <- function(baseparms,
               class = "modOut")
   }
 
-  }) # end local() / penv
 }
 
 
@@ -675,24 +690,45 @@ print.modOut <- function(x, ...) {
   
 
 ## computed weighted sum of outcomes and returns the named dataframe
+## INSTRUCTIONS
+# 1) outcomesList: matrix of outcomes, a row per wealth quintile
+# 2) weights: share of women in each quintile
 weightSumOutcomes <- function(outcomesList, weights) {
-  
-  wtOutcome <- sapply(outcomesList, "*", weights)  #
-  wtSumOutcome <- apply(wtOutcome, MARGIN = 2, sum)
+
+  # each row times its quintile's weight, then add up each column
+  wtSumOutcome <- colSums(outcomesList * weights)
   # the average ICER is the difference in average costs over the difference in average
   # outcomes, not a weighted average of the quintile ICERs
   wtSumOutcome["iCERSoc"] <- wtSumOutcome["deltaSocCosts"] / wtSumOutcome["deltaOutcome"]
   wtSumOutcome["iCERGov"] <- wtSumOutcome["deltaGovCosts"] / wtSumOutcome["deltaOutcome"]
-  wtSumOutcome <- rbind(outcomesList, wtSumOutcome)
-  rownames(wtSumOutcome) <- c(rownames(outcomesList), "Average")
-  return(wtSumOutcome)
-  
+  wtSumOutcome <- rbind(outcomesList, Average = wtSumOutcome)
+  return(as.data.frame(wtSumOutcome))
+
 }
 
 
 
-## loop through base-case, high and low values and calculate model
-# function requires user to have run the incremental analysis, if not, run incremental within the function and extrace the things we need
+## function to set one share of a dirichlet set and rescale the others proportionally,
+## so the set still sums to 1
+## INSTRUCTIONS
+# 1) shares: named vector of the base-case shares in one set (sums to 1)
+# 2) n: name of the share to change
+# 3) value: its new value
+rebalance <- function(shares, n, value) {
+  others <- names(shares) != n
+  shares[others] <- shares[others] * (1 - value) / (1 - shares[n])
+  shares[n] <- value
+  return(shares)
+}
+
+
+## function to run the one-way sensitivity analysis
+## INSTRUCTIONS
+# 1) model: the base-case model object from RunModel()
+# 2) low_base, high_base: low and high values of the ordinary parameters, from makeOWSAInputs()
+# 3) low_transitions, high_transitions: low and high values of each dirichlet share, by set
+# 4) max_vars: number of variables shown in the tornado diagrams
+# each run starts from a fresh copy of the base case with one variable changed
 owsa <- function(model, 
                  low_base, low_transitions, 
                  high_base, high_transitions, 
@@ -701,120 +737,70 @@ owsa <- function(model,
   # get the baseinputs and transitions from model object
   baseinputs <- model$baseparms
   basetransitions <- model$basetransitions
+  base <- c(baseinputs, basetransitions)
   
   # identify basecase values
   baseIncid <- model$Incidence[6, c(3, 6, 9:11)]
   baseMort <- model$Mortality[6, c(3, 6, 9:11)]
   baseDALYs <- model$DALYS[6, c(3, 6, 9:11)]
   
+  # 1) task list: for each variable, the values that change in its low run and in its high run
+  # an ordinary parameter changes only itself
+  baseTasks <- lapply(names(low_base), function(n) {
+    list(varname = n, low = low_base[n], high = high_base[n])
+  })
   
-  # set up matrix to collect the results
-  owsaIncid <- matrix(NA,
-                      nrow = length(low_base) + length(low_transitions),
-                      ncol = 10,
-                      dimnames = list(NULL, paste0("col", 1:10)))
-
-  # make three of them
-  owsaMort <- owsaDALYs <- owsaIncid
+  # a dirichlet share changes its whole set: the share itself, and the other shares rescaled
+  transitionTasks <- lapply(names(low_transitions), function(s) {
+    shares <- basetransitions[names(low_transitions[[s]])]   # base-case shares in this set
+    lapply(names(shares), function(n) {
+      list(varname = n,
+           low  = rebalance(shares, n, low_transitions[[s]][n]),
+           high = rebalance(shares, n, high_transitions[[s]][n]))
+    })
+  })
   
-  lowinputs <- low_base
-  highinputs <- high_base
-  owsavars <- owsaLabels(low_base, high_base, low_transitions)
+  # one list of tasks: parameters, then every share of every set
+  tasks <- c(baseTasks, unlist(transitionTasks, recursive = FALSE))
   
-  p <- progressor(steps = length(low_base) + length(low_transitions))
-  
-  i = 0
-  # set all live values to the base case
-  live <- baseinputs
-  for (n in names(lowinputs)) {
-    i = i + 1
-    # counter
-    
-    #message("Analyzing impact of ", n, ", variable ", i, "/", length(low_base) + length(low_transitions))
-    # Increment the progress bar, and update the detail text.
-    p(paste0("Analyzing impact of ", n, ", variable ", i, "/", (length(low_base) + length(low_transitions))))
-    #progress$inc(1/(length(low_base) + length(low_transitions)), detail = text)
-    
-    # replace the current parameter with its low value and run the model
-    low.input <- lowinputs[n]
-    live[n] <- low.input
-    
-    model <- RunModel(baseparms = live, 
-                      basetransitions = basetransitions)
-    
-    lowIncid <- model$Incidence[6, c(3, 6, 9:11)]
-    lowMort <- model$Mortality[6, c(3, 6, 9:11)]
-    lowDALYs <- model$DALYS[6, c(3, 6, 9:11)]
-    
-    # replace the current parameter with its high value and run the model
-    high.input <- highinputs[n]
-    live[n] <- high.input
-    
-    model <- RunModel(baseparms = live, 
-                      basetransitions = basetransitions)
-    
-    highIncid <- model$Incidence[6, c(3, 6, 9:11)]
-    highMort <- model$Mortality[6, c(3, 6, 9:11)]
-    highDALYs <- model$DALYS[6, c(3, 6, 9:11)]
-    
-    owsaIncid[i, ] <- c(unlist(lowIncid), unlist(highIncid))
-    owsaMort[i, ] <- c(unlist(lowMort), unlist(highMort))
-    owsaDALYs[i, ] <- c(unlist(lowDALYs), unlist(highDALYs))
-    
-    # reset to the original value
-    live[n] <- baseinputs[n]
+  # 2) the 5 results kept from one run, for each outcome
+  runLive <- function(live) {
+    model <- RunModel(baseparms = live[names(baseinputs)], 
+                      basetransitions = live[names(basetransitions)])
+    list(Incidence = unlist(model$Incidence[6, c(3, 6, 9:11)]),
+         Mortality = unlist(model$Mortality[6, c(3, 6, 9:11)]),
+         DALYs     = unlist(model$DALYS[6, c(3, 6, 9:11)]))
   }
   
-  # do the same for the transition probabilities, but put all in at once
-  # set all live values to the base case, the 4th element of list returned by the RunModel function
-  live <- basetransitions
+  # 3) run each task: a fresh copy of the base case for its low run and for its high run
+  p <- progressor(steps = length(tasks))
   
-  for (i in 1:length(low_transitions)) {
+  results <- lapply(tasks, function(task) {
+    p(paste0("Analyzing impact of ", task$varname))
+    # a misspelled name would otherwise be added to live silently
+    stopifnot(all(c(names(task$low), names(task$high)) %in% names(base)))
     
-    #message("Analyzing impact of dirichlet input set ", names(low_transitions)[i], ", variable ", i + length(low_base), "/", length(low_base) + length(low_transitions))
+    live_low <- base
+    live_low[names(task$low)] <- task$low
     
-    # Increment the progress bar, and update the detail text.
-    p(paste0("Analyzing impact of dirichlet input set ", names(low_transitions)[i], ", variable ", i + length(low_base), "/", length(low_base) + length(low_transitions)))
-    #progress$inc(1/(length(low_base) + length(low_transitions)), detail = text)
+    live_high <- base
+    live_high[names(task$high)] <- task$high
     
-    
-    # replace the current parameter-set with its low value and run the model
-    low.input <- low_transitions[[i]]
-    live[names(low_transitions[[i]])] <- low.input
-    
-    model <- RunModel(baseparms = baseinputs, 
-                      basetransitions = live)
-    
-    lowIncid <- model$Incidence[6, c(3, 6, 9:11)]
-    lowMort <- model$Mortality[6, c(3, 6, 9:11)]
-    lowDALYs <- model$DALYS[6, c(3, 6, 9:11)]
-    
-    
-    # replace the current parameter-set with its high value and run the model
-    high.input <- high_transitions[[i]]
-    live[names(high_transitions[[i]])] <- high.input
-    
-    model <- RunModel(baseparms = baseinputs, 
-                      basetransitions = live)
-    
-    highIncid <- model$Incidence[6, c(3, 6, 9:11)]
-    highMort <- model$Mortality[6, c(3, 6, 9:11)]
-    highDALYs <- model$DALYS[6, c(3, 6, 9:11)]
-    
-    owsaIncid[i+length(low_base), ] <- c(unlist(lowIncid), unlist(highIncid))
-    owsaMort[i+length(low_base), ] <- c(unlist(lowMort), unlist(highMort))
-    owsaDALYs[i+length(low_base), ] <- c(unlist(lowDALYs), unlist(highDALYs))
-    
-    # reset to the original value in basetransitions
-    live[names(high_transitions[[i]])] <- basetransitions[names(high_transitions[[i]])]
-    
-  }
+    list(low = runLive(live_low), high = runLive(live_high))
+  })
   
+  # 4) one table per outcome: a row per variable, its 5 low results then its 5 high results
+  owsaList <- lapply(c(Incidence = "Incidence", Mortality = "Mortality", DALYs = "DALYs"), function(o) {
+    out <- do.call(rbind, lapply(results, function(r) c(r$low[[o]], r$high[[o]])))
+    dimnames(out) <- list(NULL, paste0("col", 1:10))
+    return(out)
+  })
   
-  owsaList <-  list(owsaIncid, owsaMort, owsaDALYs)
-  names(owsaList) <- c("Incidence", "Mortality", "DALYs")
-  
-  owsavars <- owsaLabels(low_base, high_base, low_transitions)
+  # labels, taken from the tasks so they stay in the same order as the results
+  lowvals  <- sapply(tasks, function(task) task$low[[task$varname]])
+  highvals <- sapply(tasks, function(task) task$high[[task$varname]])
+  names(lowvals) <- names(highvals) <- sapply(tasks, function(task) task$varname)
+  owsavars <- owsaLabels(lowvals, highvals, low_transitions)
 
 
   # post processing of data to return full results
@@ -939,54 +925,56 @@ vdirichlet <- function(n, alpha) {
 
 
 
-# this function calls the RunModel function on psalist
-# use it to extract the PSA trace of costs and outcomes
+## function to run the model on one PSA draw
+## INSTRUCTIONS
+# 1) model: the base-case model object from RunModel()
+# 2) psalist: one draw, a named numeric vector of every parameter
 genPSA <- function(model, psalist) {
-  
+
   # get things we need
   basenames <- names(model$baseparms)
   transitnames <- names(model$basetransitions)
-  
+  stopifnot(all(c(basenames, transitnames) %in% names(psalist)))   # every parameter has a draw
+
   psamod <- RunModel(baseparms = psalist[basenames],
                      basetransitions = psalist[transitnames])
-  
-  psares <- list(Incidence = psamod$Incidence[6, c(3, 6, 9:11)],
-                 Mortality = psamod$Mortality[6, c(3, 6, 9:11)],
-                 DALYs = psamod$DALYS[6, c(3, 6, 9:11)])
-  
+
+  psares <- list(Incidence = unlist(psamod$Incidence[6, c(3, 6, 9:11)]),
+                 Mortality = unlist(psamod$Mortality[6, c(3, 6, 9:11)]),
+                 DALYs     = unlist(psamod$DALYS[6, c(3, 6, 9:11)]))
+
   return(psares)
-  
+
 }
 
 
+## function to run the probabilistic sensitivity analysis
+## INSTRUCTIONS
+# 1) model: the base-case model object from RunModel()
+# 2) psalist: data frame of draws from makeSims(), a row per draw
+# 3) wtp, by: maximum willingness to pay and its step, for the CEAC
 RunPSA <- function(model, psalist, wtp, by) {
-  
-  # generate draws
-  #psalist <- makeSims(nsims = nsims, data = data)
-  
-  # run PSA: split PSA inputs (psalist) into row by row lists, calculate PSA (using genPSA function)
-  # psaTrace <- transpose(psalist) |>
-  #   pbsapply(FUN = genPSA, model = model)
-  
-  psaTrace <- transpose(psalist)
-  p <- progressor(along = seq_along(psaTrace))
 
-  pT <- pbsapply(seq_along(psaTrace), function(x) {
-    
-    p(message = paste0("PSA iteration ", x, " of ", nrow(psalist)))
-    genPSA(model = model, psalist = psaTrace[[x]])
-    #progress$inc(1/seq_along(psaTrace), detail = paste0("PSA iteration ", x, "/", seq_along(psaTrace)))
-    
+  # split the draws into rows: each row is a named numeric vector of every parameter
+  draws <- asplit(as.matrix(psalist), MARGIN = 1)
+
+  # update the progress bar 100 times, not once per draw
+  every <- ceiling(length(draws) / 100)
+  p <- progressor(steps = ceiling(length(draws) / every))
+
+  results <- lapply(seq_along(draws), function(i) {
+    if (i %% every == 0 || i == length(draws)) {
+      p(message = paste0("PSA iteration ", i, " of ", length(draws)))
+    }
+    genPSA(model = model, psalist = draws[[i]])
   })
-  
-  outList <- c("Incidence", "Mortality", "DALYs")
-  names(outList) <- outList
 
-  psaTraces <- pblapply(outList,
-                FUN = function(x) {
-                  setDF(rbindlist(pT[x, ]))}
-                )
-  names(psaTraces) <- outList # name the traces
+  # one table per outcome: a row per draw
+  outList <- c(Incidence = "Incidence", Mortality = "Mortality", DALYs = "DALYs")
+
+  psaTraces <- lapply(outList, function(o) {
+    as.data.frame(do.call(rbind, unname(lapply(results, `[[`, o))))
+  })
   
   # generate scatter plot
   # need to recover names of lists, so I do seq_along and add the name to the original function
@@ -1318,15 +1306,14 @@ param_editor_modal <- function(row, edited) {
 # Human-readable tornado labels: the parameter's description from the input
 # spreadsheet plus the low–high range tested, e.g.
 # "Baseline probability of PPH if health facility delivery (0.043–0.11)"
-owsaLabels <- function(low_base, high_base, low_transitions) {
-  rng <- paste0(" (", signif(low_base, 2), "–", signif(high_base, 2), ")")
-  desc <- unname(param_labels[names(low_base)])
-  desc[is.na(desc)] <- names(low_base)[is.na(desc)]
-  sets <- c(Quintiles       = "Distribution of women across wealth quintiles",
-            AgeDistribution = "Age distribution of pregnancies")
-  set_lbl <- unname(sets[names(low_transitions)])
-  set_lbl[is.na(set_lbl)] <- paste("Distribution of", names(low_transitions))[is.na(set_lbl)]
-  c(paste0(desc, rng), paste0(set_lbl, " (95% interval)"))
+owsaLabels <- function(low, high, low_transitions) {
+  rng <- paste0(" (", signif(low, 2), "–", signif(high, 2), ")")
+  desc <- unname(param_labels[names(low)])
+  desc[is.na(desc)] <- names(low)[is.na(desc)]
+  # the sheet labels the quintile shares only "Lowest", "Second", ...
+  q <- names(low) %in% names(low_transitions$Quintiles)
+  desc[q] <- paste0("Share of women in the ", tolower(desc[q]), " wealth quintile")
+  paste0(desc, rng)
 }
 
 # Tornado diagram: one bar pair per parameter, anchored at the base-case value.
