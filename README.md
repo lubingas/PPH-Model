@@ -98,7 +98,7 @@ In the threshold analysis the odds ratio OR of a facility birth with the program
 | $w_q$; OR | `pLowQuintile` … `pHighQuintile`; `orHFDelivery` | survey counts; 1 |
 | $o_d$; $m^a_d$; $e_d$ | `pOxy…`; `pMisoAccess…MisoPolicy` (M), `pMisoAccess…OxyPolicy` (N); `pAccessEmOC…` | by place |
 | $\rho_d$ | `pHospPPH` (facility), `pHomePPH` (home) | 0.078, 0.122 |
-| $\text{RR}_{\text{oxy}}$; $\text{RR}_{\text{miso},d}$ | `rPPHOxyPlacebo`; `rPPHMisoHF` (facility), `rPPHMisoOxy` (home) | 0.53; 0.84, 0.53 |
+| $`\text{RR}_{\text{oxy}}`$; $`\text{RR}_{\text{miso},d}`$ | `rPPHOxyPlacebo`; `rPPHMisoHF` (facility), `rPPHMisoOxy` (home) | 0.53; 0.84, 0.53 |
 | $\mu$, $\varepsilon$, $\kappa$ | `pMisuseMiso`, `pNoMisoAE`, `pUterineRuptureMiso` | 0.0029, 0.014, 0.7 |
 | $\delta_{\text{E}}, \delta_{\text{N}}, \delta_{\text{R}}, \delta_{\text{S}}, \delta_0$ | `pDieEmOC`, `pDieNoEmOC`, `pDieUterineRupture`, `pDieStillBirth`, `pDieNoPPH` | 0.062, 0.124, 0.118, 0, 0 |
 | $\alpha_{\text{E}}$, $\alpha_{\text{N}}$ | `pSevereAnemiaEmOC`, `pSevereAnemianoEmOC` | 0.17, 0.34 |
